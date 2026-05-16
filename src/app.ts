@@ -3,18 +3,15 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
-import { randomUUID } from 'crypto';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { requestId } from './middleware/requestId.js';
 
 const app = express();
 
 // --- Request ID ---
-app.use((req, _res, next) => {
-  (req as express.Request & { requestId: string }).requestId = randomUUID();
-  next();
-});
+app.use(requestId);
 
 // --- Logging ---
 app.use(
