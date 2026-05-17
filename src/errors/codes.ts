@@ -48,6 +48,7 @@ export const ErrorCodes = {
   SYS_INTERNAL_ERROR: 'SYS_INTERNAL_ERROR',
   SYS_DATABASE_ERROR: 'SYS_DATABASE_ERROR',
   SYS_SERVICE_UNAVAILABLE: 'SYS_SERVICE_UNAVAILABLE',
+  SYS_RATE_LIMITED: 'SYS_RATE_LIMITED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
