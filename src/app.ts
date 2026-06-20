@@ -6,6 +6,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requestId } from './middleware/requestId.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { corsMiddleware } from './middleware/cors.js';
+import { apiRouter } from './routes/index.js';
 
 const app = express();
 
@@ -51,8 +52,8 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-// --- API Routes (placeholder) ---
-// API router will be mounted here in Phase 5+
+// --- API Routes ---
+app.use('/api', apiRouter);
 
 // --- Global Error Handler ---
 app.use(errorHandler);
