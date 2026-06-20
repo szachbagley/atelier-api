@@ -21,7 +21,7 @@ Atelier is an AI-powered storyboarding tool for filmmakers. It streamlines the c
 | Layer | Technology |
 |-------|------------|
 | **Frontend** | React 18, TypeScript, Tailwind CSS, React Query, Zustand, Fabric.js |
-| **Backend** | Node.js, Express, TypeScript |
+| **Backend** | Node.js, Express, TypeScript |G
 | **Database** | MySQL 8.0 |
 | **Infrastructure** | AWS (ECS Fargate, S3, EC2, ALB, Secrets Manager) |
 | **AI Integration** | Google Gemini (Imagen) |
