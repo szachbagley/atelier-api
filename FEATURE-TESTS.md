@@ -92,3 +92,35 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - **Tamper detection:** any mutation of ciphertext, IV, auth tag, or salt makes `decryptApiKey` throw (GCM auth-tag verification failure). Assert it throws rather than returning corrupted plaintext.
 - Malformed input (not base64 / not the expected JSON shape) throws on parse. Callers (step 5.7 routes) surface this as a `KEY_xxx`/`SYS_INTERNAL_ERROR`, never leaking the plaintext or master key.
 - Missing/short `ENCRYPTION_KEY` is caught at startup by `config` (`required()`), not at encrypt time.
+
+---
+
+## User API key management (list / add-update / delete / validate)
+
+**Status:** implemented · **Related:** plan step 5.7 · `src/routes/userSettings.ts`, `src/schemas/userSettings.ts` · uses `src/services/encryption/encryptionService.ts` · `docs/API.md` (User Settings) · **not mounted until step 5.8**
+
+### Happy path
+- `GET /user/api-keys` → `{ apiKeys: [{ provider, keyHint, isValid, updatedAt }] }` for the authenticated user — **never** the encrypted or plaintext key.
+- `POST /user/api-keys` with `{ provider: "gemini", apiKey }` → encrypts the key, stores hint, upserts on `(user_id, provider)`, returns `{ provider, keyHint, isValid: true }`.
+- `DELETE /user/api-keys/:provider` → soft-deletes the active row, `204`.
+- `POST /user/api-keys/:provider/validate` → decrypts, calls the provider, persists `is_valid`, returns `{ isValid }`.
+
+### Edge cases
+- **Upsert across soft-delete:** the `(user_id, provider)` unique index ignores `deleted_at`, so add/update must match *any* existing row (including a soft-deleted one) and clear `deleted_at` rather than insert a duplicate — assert re-adding a previously deleted provider resurrects one row, not two.
+- Re-`POST` for an existing provider replaces the key and refreshes the hint; `updatedAt` advances.
+- Idempotent delete: deleting a provider with no active key still returns `204` (no error).
+- Keys are scoped per user — one user's keys never appear in another's list.
+- `is_valid` comes back from MySQL as `0/1`; it is coerced to a real boolean in responses.
+
+### Known limitations
+- Only `gemini` is accepted at the API layer (Joi `valid('gemini')`), though the DB enum allows more providers (`openai`, `stability`, `midjourney`) — see `docs/DEFERRED_FEATURES.md`.
+- The validate endpoint performs an **interim** lightweight Gemini reachability check via global `fetch`; Phase 10 will move provider calls into the image-generation/provider layer with the shared error mapper.
+- No automated test mocks the provider call yet (integration coverage lands in Phase 13); validation currently requires network access to Gemini.
+
+### Error scenarios
+- Unauthenticated request to any route → `AUTH_TOKEN_MISSING` (401) via `authenticate`.
+- Unsupported/missing `provider` or empty `apiKey` → validation error (400) with field details.
+- Validate with no configured key → `KEY_NOT_CONFIGURED` (422).
+- Stored key fails to decrypt (corrupt/rotated master key) → `KEY_DECRYPTION_FAILED` (500); never leaks ciphertext or key material.
+- Provider rejects the key (HTTP 400/401/403) → `{ isValid: false }` (200) and `is_valid` persisted false — **not** an error response.
+- Provider unreachable or unexpected status → `SYS_SERVICE_UNAVAILABLE` (503); a transient outage must not be recorded as an invalid key. The key/URL is never logged.
