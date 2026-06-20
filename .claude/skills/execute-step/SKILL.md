@@ -76,7 +76,7 @@ Phase {N} Step {N.N}: {Step title from plan}
 
 {1-3 sentence summary of what was added, focused on the why}
 
-Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 EOF
 )"
 ```
