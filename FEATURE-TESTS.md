@@ -68,3 +68,27 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Expired access token → `AUTH_TOKEN_EXPIRED` (401); malformed/invalid signature → `AUTH_TOKEN_INVALID` (401).
 - Refresh with missing cookie → `AUTH_TOKEN_MISSING`; revoked/unknown/already-rotated token → `AUTH_TOKEN_INVALID`. **Replay detection:** presenting an already-rotated refresh token revokes the entire token family.
 - `GET /auth/me` for a soft-deleted/nonexistent user → `NotFoundError` (404).
+
+---
+
+## API key encryption (encryptApiKey / decryptApiKey / generateKeyHint)
+
+**Status:** implemented · **Related:** plan step 5.6 · `src/services/encryption/encryptionService.ts` · `docs/BACKEND.md` (Encryption Service), `docs/SECURITY.md` · consumed by step 5.7 user-settings routes
+
+### Happy path
+- `encryptApiKey(plaintext)` → a base64 string; `decryptApiKey(...)` of it returns the original plaintext exactly (round-trip identity), including non-ASCII and long keys.
+- `generateKeyHint(key)` → `•••••` + the last 4 characters (e.g. `•••••ABCD`), never the full key.
+
+### Edge cases
+- **Non-determinism:** encrypting the same plaintext twice yields different output (fresh random 32-byte salt + 16-byte IV per call); both still decrypt back to the same plaintext.
+- Empty-string plaintext round-trips. Keys shorter than 4 chars produce a hint padded only by the available characters (document, don't crash).
+- AES-256-GCM with a PBKDF2-derived 32-byte key (100K iterations, SHA-256) — derived key length and digest are pinned constants; changing them must be treated as a format break.
+
+### Known limitations
+- The encrypted payload format (JSON of `{ciphertext, iv, authTag, salt}`, base64-wrapped) is implicitly versioned; there is no explicit version byte. Master-key rotation is an operational script (see `docs/BACKEND.md` Key Rotation), not covered here.
+- The master key is read once at module load via `config.encryption.key`; rotation requires a process restart (out of MVP scope — see `docs/DEFERRED_FEATURES.md`).
+
+### Error scenarios
+- **Tamper detection:** any mutation of ciphertext, IV, auth tag, or salt makes `decryptApiKey` throw (GCM auth-tag verification failure). Assert it throws rather than returning corrupted plaintext.
+- Malformed input (not base64 / not the expected JSON shape) throws on parse. Callers (step 5.7 routes) surface this as a `KEY_xxx`/`SYS_INTERNAL_ERROR`, never leaking the plaintext or master key.
+- Missing/short `ENCRYPTION_KEY` is caught at startup by `config` (`required()`), not at encrypt time.
