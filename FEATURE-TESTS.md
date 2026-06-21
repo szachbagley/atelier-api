@@ -139,8 +139,13 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Global middleware (request ID, logging, security headers, CORS, body parsing) applies to `/api` routes because the router is mounted after them and before the error handler.
 - New feature routers (projects, components, storyboard, …) attach here in later phases — adding one must not disturb existing mounts.
 
+### Rate limiting
+- `globalLimiter` (100 req/min per IP) is mounted on `/api`, so all API traffic is throttled; exceeding the limit returns `429` with `SYS_RATE_LIMITED` + `requestId` and `RateLimit-*` standard headers.
+- `/health` is mounted before the limiter and is intentionally **exempt** — infra healthchecks (ECS `HEALTHCHECK`, ALB target group) must never be throttled. A successful `/health` response carries no `RateLimit-*` headers.
+- `authLimiter` still stacks on auth routes (10 / 15 min keyed by IP+email), so auth endpoints are guarded by both limiters.
+
 ### Known limitations
-- No global rate limiter is applied in `app.ts` yet (only `authLimiter` on auth routes); the plan's global 100 req/min limiter is a pre-existing gap to wire separately.
+- Rate limiting is in-memory per process; a shared store for distributed limiting across instances is not implemented (see `docs/DEFERRED_FEATURES.md`).
 - Full end-to-end auth/API-key flows require a live MySQL and are covered by integration tests in Phase 13; this step's verification is limited to routing reachability (no DB).
 
 ### Error scenarios
