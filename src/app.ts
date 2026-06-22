@@ -6,6 +6,8 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requestId } from './middleware/requestId.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { corsMiddleware } from './middleware/cors.js';
+import { globalLimiter } from './middleware/rateLimiter.js';
+import { apiRouter } from './routes/index.js';
 
 const app = express();
 
@@ -51,8 +53,10 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-// --- API Routes (placeholder) ---
-// API router will be mounted here in Phase 5+
+// --- API Routes ---
+// globalLimiter (100 req/min per IP) guards all /api traffic. /health is mounted
+// above and intentionally exempt so infra healthchecks are never throttled.
+app.use('/api', globalLimiter, apiRouter);
 
 // --- Global Error Handler ---
 app.use(errorHandler);

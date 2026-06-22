@@ -97,7 +97,7 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 
 ## User API key management (list / add-update / delete / validate)
 
-**Status:** implemented · **Related:** plan step 5.7 · `src/routes/userSettings.ts`, `src/schemas/userSettings.ts` · uses `src/services/encryption/encryptionService.ts` · `docs/API.md` (User Settings) · **not mounted until step 5.8**
+**Status:** implemented · **Related:** plan steps 5.7–5.8 · `src/routes/userSettings.ts`, `src/schemas/userSettings.ts`, mounted via `src/routes/index.ts` at `/api/user` · uses `src/services/encryption/encryptionService.ts` · `docs/API.md` (User Settings)
 
 ### Happy path
 - `GET /user/api-keys` → `{ apiKeys: [{ provider, keyHint, isValid, updatedAt }] }` for the authenticated user — **never** the encrypted or plaintext key.
@@ -124,3 +124,30 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Stored key fails to decrypt (corrupt/rotated master key) → `KEY_DECRYPTION_FAILED` (500); never leaks ciphertext or key material.
 - Provider rejects the key (HTTP 400/401/403) → `{ isValid: false }` (200) and `is_valid` persisted false — **not** an error response.
 - Provider unreachable or unexpected status → `SYS_SERVICE_UNAVAILABLE` (503); a transient outage must not be recorded as an invalid key. The key/URL is never logged.
+
+---
+
+## API routing / app wiring
+
+**Status:** implemented · **Related:** plan step 5.8 · `src/routes/index.ts` (master `apiRouter`), `src/app.ts` (mounts at `/api`)
+
+### Happy path
+- The master `apiRouter` mounts feature routers under `/api`: auth at `/api/auth`, user settings at `/api/user`. Reaching a sub-route's validation/auth layer proves it is wired (e.g. `POST /api/auth/login` with an empty body → `400`; `GET /api/user/api-keys` with no token → `401`).
+- `GET /health` remains reachable and unauthenticated, returning `{ status: "ok" }`.
+
+### Edge cases
+- Global middleware (request ID, logging, security headers, CORS, body parsing) applies to `/api` routes because the router is mounted after them and before the error handler.
+- New feature routers (projects, components, storyboard, …) attach here in later phases — adding one must not disturb existing mounts.
+
+### Rate limiting
+- `globalLimiter` (100 req/min per IP) is mounted on `/api`, so all API traffic is throttled; exceeding the limit returns `429` with `SYS_RATE_LIMITED` + `requestId` and `RateLimit-*` standard headers.
+- `/health` is mounted before the limiter and is intentionally **exempt** — infra healthchecks (ECS `HEALTHCHECK`, ALB target group) must never be throttled. A successful `/health` response carries no `RateLimit-*` headers.
+- `authLimiter` still stacks on auth routes (10 / 15 min keyed by IP+email), so auth endpoints are guarded by both limiters.
+
+### Known limitations
+- Rate limiting is in-memory per process; a shared store for distributed limiting across instances is not implemented (see `docs/DEFERRED_FEATURES.md`).
+- Full end-to-end auth/API-key flows require a live MySQL and are covered by integration tests in Phase 13; this step's verification is limited to routing reachability (no DB).
+
+### Error scenarios
+- Unknown path under `/api` (e.g. `GET /api/nope`) → `404` (Express default, no matching route).
+- Errors thrown in any mounted route are formatted by the global `errorHandler` into `{ error: { code, message, details, requestId } }`.
