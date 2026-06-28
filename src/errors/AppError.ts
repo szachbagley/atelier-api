@@ -60,12 +60,11 @@ export class UnauthorizedError extends AppError {
 }
 
 export class ForbiddenError extends AppError {
-  constructor(resource: string) {
-    super(
-      ErrorCodes.AUTHZ_RESOURCE_ACCESS_DENIED,
-      403,
-      `Access denied to ${resource}`
-    );
+  constructor(
+    resource: string,
+    code: ErrorCode = ErrorCodes.AUTHZ_RESOURCE_ACCESS_DENIED
+  ) {
+    super(code, 403, `Access denied to ${resource}`);
     this.name = 'ForbiddenError';
   }
 }

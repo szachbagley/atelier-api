@@ -151,3 +151,27 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 ### Error scenarios
 - Unknown path under `/api` (e.g. `GET /api/nope`) → `404` (Express default, no matching route).
 - Errors thrown in any mounted route are formatted by the global `errorHandler` into `{ error: { code, message, details, requestId } }`.
+
+---
+
+## Project authorization (`requireProjectAccess`)
+
+**Status:** in progress · **Related:** plan step 6.1 · `src/middleware/authorize.ts`, `src/errors/AppError.ts` (`ForbiddenError`) · `docs/API.md` (error table), `docs/SECURITY.md` · **not reachable until project routes are mounted (step 6.4)**
+
+### Happy path
+- An authenticated owner requesting their own active project → middleware loads the row, attaches it to `req.project`, and calls `next()`. Downstream handlers can rely on `req.project` being set.
+- `requireProjectAccessAllowDeleted` additionally matches a soft-deleted project the user owns — the basis for the restore route (step 6.4).
+
+### Edge cases
+- Ownership is enforced by matching **both** `id` and `user_id`, so a valid project id owned by another user is treated identically to a non-existent one.
+- Active-only variant filters `deleted_at IS NULL` via `addActiveFilter`; the allow-deleted variant omits that filter and matches deleted or active.
+- Runs only after `authenticate` (which sets `req.user`); the chain order is what guarantees `req.user.id` is present.
+
+### Known limitations
+- Component/sub-resource authorization (characters, shots, etc.) is layered in later phases; this middleware scopes access at the project level only.
+- No automated test until routes exist — owner/non-owner/deleted behavior is covered by integration tests in step 6.4 and Phase 13. Unit verification so far: `ForbiddenError` code/status shape.
+
+### Error scenarios
+- Non-owner, unknown, or (active variant) soft-deleted project → `403` `AUTHZ_PROJECT_ACCESS_DENIED` (deliberately not `404`, to match `docs/API.md`; existence is not revealed via a distinct status).
+- Unauthenticated request → fails earlier at `authenticate` with `AUTH_TOKEN_MISSING` (401) before authorization runs.
+- `ForbiddenError`'s default code remains `AUTHZ_RESOURCE_ACCESS_DENIED` (used by generic resource guards); the project middleware passes `AUTHZ_PROJECT_ACCESS_DENIED` explicitly. Both are 403 with a `requestId`.
