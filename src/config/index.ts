@@ -1,6 +1,10 @@
 import { config as dotenvConfig } from 'dotenv';
+import path from 'node:path';
 
-dotenvConfig();
+// Load .env from the project root regardless of the caller's working directory
+// (e.g. the knex CLI chdirs to src/db before loading the knexfile). This module
+// lives one directory below the root in both src/ and dist/.
+dotenvConfig({ path: path.resolve(__dirname, '../../.env') });
 
 function required(key: string): string {
   const value = process.env[key];
