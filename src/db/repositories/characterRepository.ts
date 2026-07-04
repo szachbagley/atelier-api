@@ -1,4 +1,5 @@
 import { db } from '../index.js';
+import * as storage from '../../services/storage/storageService.js';
 import type { Character, ReferenceImage, Variant } from '../../types/models.js';
 import { toCamelRow, toCamelRows } from '../../utils/caseMapping.js';
 import { addActiveFilter } from '../../utils/softDelete.js';
@@ -36,6 +37,7 @@ export interface ReferenceImageRecord {
   filename: string | null;
   mimeType: string | null;
   uploadedAt: Date;
+  url: string;
 }
 
 export interface CharacterDetail extends CharacterRecord {
@@ -99,11 +101,14 @@ export async function findDetail(
   return {
     ...character,
     variants: toCamelRows<VariantRecord>(variants),
-    referenceImages: referenceImages.map((img) => ({
-      id: img.id,
-      filename: img.filename,
-      mimeType: img.mime_type,
-      uploadedAt: img.uploaded_at,
-    })),
+    referenceImages: await Promise.all(
+      referenceImages.map(async (img) => ({
+        id: img.id,
+        filename: img.filename,
+        mimeType: img.mime_type,
+        uploadedAt: img.uploaded_at,
+        url: await storage.getImageUrl(img.s3_key),
+      }))
+    ),
   };
 }

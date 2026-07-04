@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import type { Knex } from 'knex';
 import { db } from '../index.js';
+import * as storage from '../../services/storage/storageService.js';
 import type {
   LightingSetup,
   Setting,
@@ -198,24 +199,41 @@ function shotColumnValues(
 }
 
 export async function listByScene(sceneId: string): Promise<ShotListItem[]> {
-  const rows = await addActiveFilter(
-    db<Shot>('shots').where({ scene_id: sceneId })
-  ).orderBy('sequence_number');
+  // Qualified soft-delete filter: the joined generated_images table has its
+  // own deleted_at column.
+  const rows = (await db<Shot>('shots')
+    .where({ 'shots.scene_id': sceneId })
+    .whereNull('shots.deleted_at')
+    .leftJoin(
+      'generated_images',
+      'shots.generated_image_id',
+      'generated_images.id'
+    )
+    .select('shots.*', 'generated_images.s3_key as image_s3_key')
+    .orderBy('shots.sequence_number')) as Array<
+    Shot & { image_s3_key: string | null }
+  >;
 
   const characters = await loadCharacters(rows.map((row) => row.id));
 
-  return rows.map((row) => ({
-    id: row.id,
-    sequenceNumber: row.sequence_number,
-    description: row.description,
-    shotType: row.shot_type,
-    cameraAngle: row.camera_angle,
-    cameraMovement: row.camera_movement,
-    status: row.status,
-    imageUrl: null, // presigned in Phase 9+
-    thumbnailUrl: null,
-    characters: characters.get(row.id) ?? [],
-  }));
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      sequenceNumber: row.sequence_number,
+      description: row.description,
+      shotType: row.shot_type,
+      cameraAngle: row.camera_angle,
+      cameraMovement: row.camera_movement,
+      status: row.status,
+      imageUrl: row.image_s3_key
+        ? await storage.getImageUrl(row.image_s3_key)
+        : null,
+      thumbnailUrl: row.image_s3_key
+        ? await storage.getThumbnailUrl(row.image_s3_key)
+        : null,
+      characters: characters.get(row.id) ?? [],
+    }))
+  );
 }
 
 // Look up a shot while verifying the full active chain:
@@ -266,6 +284,19 @@ export async function findDetail(
 
   const characters = await loadCharacters([shotId]);
 
+  let imageUrl: string | null = null;
+  let thumbnailUrl: string | null = null;
+  if (shot.generatedImageId) {
+    const image = await db('generated_images')
+      .where({ id: shot.generatedImageId })
+      .select('s3_key')
+      .first();
+    if (image) {
+      imageUrl = await storage.getImageUrl(image.s3_key);
+      thumbnailUrl = await storage.getThumbnailUrl(image.s3_key);
+    }
+  }
+
   return {
     ...shot,
     characters: characters.get(shotId) ?? [],
@@ -276,8 +307,8 @@ export async function findDetail(
     lighting: lighting
       ? { ...toCamelRow(lighting), source: shot.lightingId ? 'shot' : 'scene' }
       : null,
-    imageUrl: null, // presigned in Phase 9+
-    thumbnailUrl: null,
+    imageUrl,
+    thumbnailUrl,
   };
 }
 

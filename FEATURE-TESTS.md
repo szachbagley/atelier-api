@@ -259,3 +259,29 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Invalid enums (shotType/cameraAngle/cameraMovement), bad annotation schema (wrong version/shape), empty PATCH → 400.
 - Unknown act/scene/shot in project → 404 `RES_NOT_FOUND`; non-owner → 403 `AUTHZ_PROJECT_ACCESS_DENIED`.
 - Verified live (30-check smoke script) 2026-07-03; integration tests land in Phase 13 (`tests/integration/shots.test.ts`).
+
+---
+
+## Image storage (S3 presigned uploads / reference images / generated image records)
+
+**Status:** implemented · **Related:** plan Steps 9.1–9.4; `src/services/storage/{s3Client,storageService}.ts`, `src/routes/referenceImages.ts`, `src/schemas/referenceImage.ts`, `src/db/repositories/generatedImageRepository.ts`, `src/config/storage.ts`
+
+### Happy path
+- Presign: validates filename ext + MIME + component-in-project, mints imageId, returns `{uploadUrl (15-min PUT), imageId, s3Key, expiresAt}`; key layout `projects/{pid}/references/{imageId}{ext}` (generated: `/generated/`, thumbnails: `/thumbnails/{id}_thumb.webp`).
+- Confirm: re-derives the expected key (never trusts client key), HEADs S3, inserts `reference_images` row, best-effort 400×225 webp thumbnail via sharp, returns presigned download URL.
+- List by componentType+componentId (or whole project via key-prefix scope) with presigned URLs; delete soft-deletes the record (S3 cleanup left to lifecycle policy).
+- Shot list/detail, shared view, and character detail now presign real image/thumbnail URLs when a generated/reference image exists.
+
+### Edge cases
+- Presigned URL generation is a local signature computation — works with any configured creds; URL validity is S3's concern at request time.
+- Thumbnail failure does not fail the confirm (logged warning); image remains usable.
+- List query enforces componentType and componentId together (`.and()`).
+
+### Known limitations
+- **No live AWS verification** — dev env has dummy creds; presign shape verified live, S3 round-trips (HEAD/GET/PUT) exercised via mocked integration tests in Phase 13. User should verify with real creds post-merge.
+- File size limit (10MB) is not enforceable via presigned PUT (needs presigned POST policy or a HEAD-size check at confirm — deferred).
+- Orphaned S3 objects (presigned but never confirmed) rely on lifecycle policy.
+
+### Error scenarios
+- Bad extension/MIME/unknown component/tampered s3Key → 400; missing S3 object at confirm → 422 `UPL_S3_ERROR`; unknown image on delete → 404.
+- Verified live (9-check smoke) 2026-07-03.

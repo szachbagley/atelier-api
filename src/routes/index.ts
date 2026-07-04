@@ -6,6 +6,7 @@ import { charactersRouter } from './characters.js';
 import { lightingRouter } from './lighting.js';
 import { projectsRouter } from './projects.js';
 import { propsRouter } from './props.js';
+import { referenceImagesRouter } from './referenceImages.js';
 import { actScenesRouter, scenesRouter } from './scenes.js';
 import { settingsRouter } from './settings.js';
 import { sharedRouter } from './shared.js';
@@ -32,6 +33,9 @@ apiRouter.use(
 apiRouter.use('/projects/:projectId/settings', settingsRouter);
 apiRouter.use('/projects/:projectId/props', propsRouter);
 apiRouter.use('/projects/:projectId/lighting', lightingRouter);
+
+// Images.
+apiRouter.use('/projects/:projectId/reference-images', referenceImagesRouter);
 
 // Storyboard structure (acts → scenes → shots).
 apiRouter.use('/projects/:projectId/acts/:actId/scenes', actScenesRouter);

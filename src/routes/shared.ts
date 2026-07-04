@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import * as projectRepository from '../db/repositories/projectRepository.js';
 import { NotFoundError } from '../errors/index.js';
+import * as storage from '../services/storage/storageService.js';
 import type { Act, ArtStyle, Scene, Shot } from '../types/models.js';
 import { addActiveFilter } from '../utils/softDelete.js';
 
@@ -37,17 +38,41 @@ sharedRouter.get('/:shareToken', async (req, res) => {
 
   const sceneIds = scenes.map((scene) => scene.id);
   const shots = sceneIds.length
-    ? await addActiveFilter(
-        db<Shot>('shots').whereIn('scene_id', sceneIds)
-      ).orderBy('sequence_number')
+    ? ((await db<Shot>('shots')
+        .whereIn('shots.scene_id', sceneIds)
+        .whereNull('shots.deleted_at')
+        .leftJoin(
+          'generated_images',
+          'shots.generated_image_id',
+          'generated_images.id'
+        )
+        .select('shots.*', 'generated_images.s3_key as image_s3_key')
+        .orderBy('shots.sequence_number')) as Array<
+        Shot & { image_s3_key: string | null }
+      >)
     : [];
 
-  const shotsByScene = new Map<string, Shot[]>();
+  type SharedShot = Shot & { image_s3_key: string | null };
+  const shotsByScene = new Map<string, SharedShot[]>();
   for (const shot of shots) {
     const list = shotsByScene.get(shot.scene_id) ?? [];
     list.push(shot);
     shotsByScene.set(shot.scene_id, list);
   }
+
+  const shotView = async (shot: SharedShot): Promise<object> => ({
+    id: shot.id,
+    sequenceNumber: shot.sequence_number,
+    description: shot.description,
+    imageUrl: shot.image_s3_key
+      ? await storage.getImageUrl(shot.image_s3_key)
+      : null,
+    thumbnailUrl: shot.image_s3_key
+      ? await storage.getThumbnailUrl(shot.image_s3_key)
+      : null,
+    annotations: shot.annotations,
+    caption: shot.caption,
+  });
 
   const scenesByAct = new Map<string, Scene[]>();
   for (const scene of scenes) {
@@ -71,24 +96,22 @@ sharedRouter.get('/:shareToken', async (req, res) => {
           aiDescription: artStyle.ai_description,
         }
       : null,
-    acts: acts.map((act) => ({
-      id: act.id,
-      title: act.title,
-      sequenceNumber: act.sequence_number,
-      scenes: (scenesByAct.get(act.id) ?? []).map((scene) => ({
-        id: scene.id,
-        title: scene.title,
-        sequenceNumber: scene.sequence_number,
-        shots: (shotsByScene.get(scene.id) ?? []).map((shot) => ({
-          id: shot.id,
-          sequenceNumber: shot.sequence_number,
-          description: shot.description,
-          imageUrl: null,
-          thumbnailUrl: null,
-          annotations: shot.annotations,
-          caption: shot.caption,
-        })),
-      })),
-    })),
+    acts: await Promise.all(
+      acts.map(async (act) => ({
+        id: act.id,
+        title: act.title,
+        sequenceNumber: act.sequence_number,
+        scenes: await Promise.all(
+          (scenesByAct.get(act.id) ?? []).map(async (scene) => ({
+            id: scene.id,
+            title: scene.title,
+            sequenceNumber: scene.sequence_number,
+            shots: await Promise.all(
+              (shotsByScene.get(scene.id) ?? []).map(shotView)
+            ),
+          }))
+        ),
+      }))
+    ),
   });
 });
