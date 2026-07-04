@@ -2039,68 +2039,82 @@ export async function runMigrations(): Promise<void> {
 
 ### Repository Pattern
 
-> **Note (illustrative sketch).** The example below shows the *shape* of a repository
-> only. It is intentionally minimal and is **not** the full `projectRepository` contract.
-> `BACKEND_DEVELOPMENT_PLAN.md` Step 6.3 is authoritative and additionally requires:
-> (a) returning **camelCase** fields (repositories own the snake↔camel boundary),
-> (b) `findByUserId`/`findById` including **`actCount`/`shotCount` aggregates**, and
-> (c) `create()` inserting the project **and a default `art_style` row in one transaction**.
-> This snippet will be refreshed to match the real implementation once Step 6.3 lands.
+Repositories own the data-access layer and the **snake_case ↔ camelCase boundary**:
+rows leave repositories in camelCase (via `src/utils/caseMapping.ts`), and update
+payloads are converted back to snake_case before hitting the DB. All reads apply the
+soft-delete filter (`addActiveFilter`), and multi-table writes use transactions.
+
+Excerpt from the real `src/db/repositories/projectRepository.ts`:
 
 ```typescript
-// src/db/repositories/projectRepository.ts
+import { v4 as uuid } from 'uuid';
+import { db } from '../index.js';
+import type { Project } from '../../types/models.js';
+import { toCamelRow, toSnakeRow } from '../../utils/caseMapping.js';
+import { addActiveFilter, restore, softDelete } from '../../utils/softDelete.js';
 
-import { db } from '../index';
-import { Project } from '../../types/models';
-import { softDelete } from '../../utils/softDelete';
+// Correlated subqueries keep the aggregates fan-out-free; every level of the
+// acts → scenes → shots chain applies its own soft-delete filter.
+const ACT_COUNT_SQL = `(
+  select count(*) from acts a
+  where a.project_id = projects.id and a.deleted_at is null
+) as act_count`;
 
-export const projectRepository = {
-  
-  async findById(id: string): Promise<Project | null> {
-    return db('projects')
-      .where({ id })
-      .whereNull('deleted_at')
-      .first();
-  },
-  
-  async findByUserId(userId: string): Promise<Project[]> {
-    return db('projects')
-      .where({ user_id: userId })
-      .whereNull('deleted_at')
-      .orderBy('updated_at', 'desc');
-  },
-  
-  async findByShareToken(shareToken: string): Promise<Project | null> {
-    return db('projects')
-      .where({ share_token: shareToken, is_public: true })
-      .whereNull('deleted_at')
-      .first();
-  },
-  
-  async create(project: Partial<Project>): Promise<Project> {
-    await db('projects').insert(project);
-    return this.findById(project.id!);
-  },
-  
-  async update(id: string, updates: Partial<Project>): Promise<Project> {
-    await db('projects')
-      .where({ id })
-      .update({ ...updates, updated_at: db.fn.now() });
-    return this.findById(id);
-  },
-  
-  async softDelete(id: string): Promise<void> {
-    await softDelete(db, 'projects', id);
-  },
-  
-  async restore(id: string): Promise<Project> {
-    await db('projects')
-      .where({ id })
-      .update({ deleted_at: null });
-    return this.findById(id);
-  },
-};
+export async function findByUserId(userId: string): Promise<ProjectSummary[]> {
+  const rows = await addActiveFilter(
+    db<Project>('projects').where({ user_id: userId })
+  )
+    .select('projects.*', db.raw(ACT_COUNT_SQL), db.raw(SHOT_COUNT_SQL))
+    .orderBy('updated_at', 'desc');
+
+  return (rows as RawProjectRow[]).map(toSummary);
+}
+
+export async function create(
+  userId: string,
+  data: { title: string }
+): Promise<ProjectRecord> {
+  const projectId = uuid();
+
+  // Every project owns exactly one art_styles row (empty until the user fills
+  // it in); create both atomically.
+  await db.transaction(async (trx) => {
+    await trx('projects').insert({
+      id: projectId,
+      user_id: userId,
+      title: data.title,
+    });
+    await trx('art_styles').insert({
+      id: uuid(),
+      project_id: projectId,
+    });
+  });
+
+  const row = (await db<Project>('projects')
+    .where({ id: projectId })
+    .first()) as Project;
+  return toRecord(row); // camelCase out
+}
+
+export async function update(
+  id: string,
+  data: UpdateProjectData
+): Promise<ProjectRecord> {
+  await db('projects')
+    .where({ id })
+    .update({ ...toSnakeRow(data), updated_at: db.fn.now() });
+
+  const row = (await db<Project>('projects').where({ id }).first()) as Project;
+  return toRecord(row);
+}
+
+export async function softDeleteProject(id: string): Promise<void> {
+  await softDelete(db, 'projects', id);
+}
 ```
+
+See the source file for the full contract (`findById` detail stats, share-token
+management, `restoreProject`, `findByShareToken`).
 
 ### Soft Delete Utilities
 
