@@ -202,3 +202,31 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Non-owner or deleted project (any verb incl. update/restore-by-stranger) → 403 `AUTHZ_PROJECT_ACCESS_DENIED`; unauthenticated → 401 `AUTH_TOKEN_MISSING`.
 - Unknown/revoked share token → 404 `RES_NOT_FOUND`.
 - Verified live (23-check smoke script) 2026-07-03; integration tests land in Phase 13 (`tests/integration/projects.test.ts`).
+
+---
+
+## Component library (art style / characters / variants / settings / props / lighting)
+
+**Status:** implemented · **Related:** plan Steps 7.1–7.4; `src/routes/{artStyle,characters,variants,settings,props,lighting}.ts`, `src/routes/componentHelpers.ts` (shared CRUD router factory), `src/db/repositories/*`, `componentCrud.ts` (shared repo factory)
+
+### Happy path
+- Standard CRUD for every type; create → 201 full camelCase object; list → `{data:[…]}`; patch → updated object; delete → 204 (soft).
+- Characters list carries `variantCount` + `referenceImageCount`; settings list carries `referenceImageCount`; character detail embeds `variants[]` + `referenceImages[]`.
+- Art style is one-per-project: exists (empty) from project creation, `PUT` upserts, `GET` self-heals via upsert if the row is missing.
+- Variants are nested under characters; the router verifies the character belongs to the project before any variant op.
+
+### Edge cases
+- Setting `timeOfDay`/`weather` restricted to the 7-value enums (DB defaults `unspecified`).
+- `technicalTerms` JSON round-trips as a real array.
+- Component IDs are invisible across projects: fetching Alice's prop via Bob's project → 404 (not 403 — the project gate passed, the resource simply isn't in that project).
+- Deleting a character makes its variants unreachable (nested scope), and soft-deleted components disappear from lists and gets.
+
+### Known limitations
+- `generate-description` endpoints return **501** until Phase 10 wires Gemini.
+- Character-delete does not cascade-soft-delete variant rows (they're unreachable via API; DB-level CASCADE applies only to hard deletes).
+- Reference image arrays/counts are exercised properly in Phase 9 (upload flow).
+
+### Error scenarios
+- Missing `name` → 400; invalid enum → 400; empty PATCH body → 400 (`.min(1)`).
+- Non-owner → 403 `AUTHZ_PROJECT_ACCESS_DENIED` at the project gate; wrong-project resource → 404 `RES_NOT_FOUND`; stubs → 501 `SYS_SERVICE_UNAVAILABLE`.
+- Verified live (27-check smoke script) 2026-07-03.
