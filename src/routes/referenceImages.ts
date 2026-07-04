@@ -2,11 +2,6 @@ import { Router } from 'express';
 import path from 'node:path';
 import { v4 as uuid } from 'uuid';
 import { db } from '../db/index.js';
-import * as artStyleRepository from '../db/repositories/artStyleRepository.js';
-import * as characterRepository from '../db/repositories/characterRepository.js';
-import * as lightingRepository from '../db/repositories/lightingRepository.js';
-import * as propRepository from '../db/repositories/propRepository.js';
-import * as settingRepository from '../db/repositories/settingRepository.js';
 import { AppError } from '../errors/AppError.js';
 import { ErrorCodes } from '../errors/codes.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
@@ -23,56 +18,12 @@ import type { ComponentType, ReferenceImage } from '../types/models.js';
 import { logger } from '../utils/logger.js';
 import { addActiveFilter, softDelete } from '../utils/softDelete.js';
 import { projectIdOf } from './componentHelpers.js';
+import { assertComponentInProject } from './componentLookup.js';
 
 // Mounted at /projects/:projectId/reference-images.
 export const referenceImagesRouter = Router({ mergeParams: true });
 
 referenceImagesRouter.use(authenticate, requireProjectAccess);
-
-// The referenced component must exist in this project — otherwise images
-// could be attached to other users' components.
-async function assertComponentInProject(
-  projectId: string,
-  componentType: ComponentType,
-  componentId: string
-): Promise<void> {
-  let exists = false;
-  switch (componentType) {
-    case 'character':
-      exists = !!(await characterRepository.findById(projectId, componentId));
-      break;
-    case 'variant': {
-      const row = await db('variants')
-        .join('characters', 'variants.character_id', 'characters.id')
-        .where({ 'variants.id': componentId, 'characters.project_id': projectId })
-        .whereNull('variants.deleted_at')
-        .whereNull('characters.deleted_at')
-        .first();
-      exists = !!row;
-      break;
-    }
-    case 'setting':
-      exists = !!(await settingRepository.findById(projectId, componentId));
-      break;
-    case 'prop':
-      exists = !!(await propRepository.findById(projectId, componentId));
-      break;
-    case 'lighting':
-      exists = !!(await lightingRepository.findById(projectId, componentId));
-      break;
-    case 'art_style': {
-      const artStyle = await artStyleRepository.get(projectId);
-      exists = artStyle?.id === componentId;
-      break;
-    }
-  }
-
-  if (!exists) {
-    throw new ValidationError('Referenced component not found in project', {
-      fields: [{ field: 'componentId', message: `Unknown id: ${componentId}` }],
-    });
-  }
-}
 
 referenceImagesRouter.post('/presign', validate(presignSchema), async (req, res) => {
   const projectId = projectIdOf(req);

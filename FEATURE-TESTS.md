@@ -313,3 +313,29 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 ### Error scenarios
 - No key → 422 `KEY_NOT_CONFIGURED`; bad key → 422 `KEY_INVALID`; 429 → `KEY_RATE_LIMITED`; safety block → 422 `GEN_CONTENT_FILTERED`; timeout → 504 `GEN_PROVIDER_TIMEOUT`; other → 502 `GEN_PROVIDER_ERROR`; concurrent generate → 409 `GEN_ALREADY_IN_PROGRESS`; revert without previous → 422 `GEN_NO_PREVIOUS_IMAGE`; `editedPrompt`>1500 → 400.
 - Verified live (22-check smoke incl. real Gemini error mapping) 2026-07-03.
+
+---
+
+## Concept art sessions (create / messages / abandon / finalize)
+
+**Status:** implemented · **Related:** plan Steps 11.1–11.3; `src/routes/conceptSessions.ts`, `src/db/repositories/conceptSessionRepository.ts`, `src/routes/componentLookup.ts` (shared component-in-project checks), `src/schemas/conceptSession.ts`
+
+### Happy path
+- Create (componentType+componentId validated in-project) → 201 ACTIVE with empty messages; list carries `messageCount`; detail returns full message history with presigned image URLs.
+- Message flow: user message persisted → image generated from component context + message content (same pipeline as Phase 10) → assistant message with `generatedImageId` + `imageUrl`; response returns both messages.
+- Finalize: `selectedImageId` must have been generated in the session → Gemini text-gen builds the component description (component fields + selected image's prompt) → component `ai_description` updated → session COMPLETED → `{status, generatedDescription}`.
+- PATCH allows exactly one client transition: ACTIVE → ABANDONED.
+
+### Edge cases
+- User message persists even if generation fails afterwards (conversation history intact for retry).
+- Non-ACTIVE sessions reject messages/finalize/abandon with 409 `RES_CONFLICT`.
+- Client cannot set COMPLETED directly (schema restricts to ABANDONED).
+
+### Known limitations
+- Finalize derives the description from the selected image's *generation prompt* (text proxy), not from vision analysis of the image itself — an MVP choice per plan Step 10.5's template allowance; upgrade path is Gemini multimodal input.
+- Assistant message content is templated (no conversational LLM turn) — the image is the real payload.
+- Generation success paths mocked in Phase 13 (no live Gemini key).
+
+### Error scenarios
+- Unknown/foreign component or foreign `selectedImageId` → 400; unknown session → 404; non-owner → 403; no Gemini key → 422 `KEY_NOT_CONFIGURED`; non-ACTIVE ops → 409.
+- Verified live (14-check smoke) 2026-07-03.
