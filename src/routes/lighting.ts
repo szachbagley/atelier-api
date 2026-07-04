@@ -11,4 +11,13 @@ export const lightingRouter = makeComponentCrudRouter({
   createSchema: createLightingSchema,
   updateSchema: updateLightingSchema,
   resourceName: 'Lighting setup',
+  describeLabel: 'cinematic lighting setup',
+  describeFields: (record) => {
+    const l = record as lightingRepository.LightingRecord;
+    return {
+      name: l.name,
+      description: l.description,
+      mood: l.mood,
+    };
+  },
 });

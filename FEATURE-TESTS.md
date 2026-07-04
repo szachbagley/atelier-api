@@ -285,3 +285,31 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 ### Error scenarios
 - Bad extension/MIME/unknown component/tampered s3Key → 400; missing S3 object at confirm → 422 `UPL_S3_ERROR`; unknown image on delete → 404.
 - Verified live (9-check smoke) 2026-07-03.
+
+---
+
+## Prompt compiler & image generation (compile-prompt / generate / revert / generate-image / generate-description)
+
+**Status:** implemented · **Related:** plan Steps 10.1–10.6; `src/services/promptCompiler/*`, `src/services/imageGeneration/*`, routes in `shots.ts`, `imageGeneration.ts`, component routers
+
+### Happy path
+- `GET …/compile-prompt` → `{prompt, sections, warnings, error}`; section order **framing → description → characters → props → setting → lighting → style → quality** (binding per ARCHITECTURE.md); output verified against the doc's worked example (framing prose, "featuring …; …", "with …", "Set in …", "Rendered in …", quality boosters, sentence-cased).
+- `POST …/generate` (optional `editedPrompt`): DRAFT→GENERATING→GENERATED; Gemini `imagen-3.0-generate-002:predict` via fetch (user's decrypted key, 60s timeout) → S3 upload → webp thumbnail → `generated_images` row → shot pointers updated (`previous_image_id` kept for revert); returns presigned URLs.
+- `POST …/revert` swaps current/previous image pointers.
+- `POST /projects/:id/generate-image` — free-form concept-art generation (same pipeline, no shot).
+- `generate-description` (all 6 component types) — Gemini `gemini-2.5-flash:generateContent` builds an AI-optimized visual description from the component's human fields (variant = combined base+variant). Returns `{aiDescription}` (not auto-persisted; client saves via PATCH/PUT).
+
+### Edge cases
+- Effective setting/lighting inheritance flows into the context builder (scene defaults when shot fields null).
+- Missing descriptions produce warnings, not failures; >1500-char prompt returns a `GEN_PROMPT_TOO_LONG` **error object** from compile (HTTP 200 preview; generate throws 422).
+- Prompt-injection sanitization (SECURITY.md): brackets/code fences stripped, newlines limited, 2000-char cap — applied to every user text entering a prompt.
+- Failed generation always lands status FAILED (never stuck GENERATING) — prompt resolution happens *before* the status flip.
+
+### Known limitations
+- **No live image generated** (no real Gemini key in dev): success path exercised via mocked integration tests (Phase 13); error mapping verified live against the real Gemini endpoint with an invalid key → `KEY_INVALID`.
+- Single provider (gemini); model ids centralized in `geminiClient.ts`.
+- `GEN_ALREADY_IN_PROGRESS` guard is read-then-write, not a DB-level lock (single-user MVP tolerance).
+
+### Error scenarios
+- No key → 422 `KEY_NOT_CONFIGURED`; bad key → 422 `KEY_INVALID`; 429 → `KEY_RATE_LIMITED`; safety block → 422 `GEN_CONTENT_FILTERED`; timeout → 504 `GEN_PROVIDER_TIMEOUT`; other → 502 `GEN_PROVIDER_ERROR`; concurrent generate → 409 `GEN_ALREADY_IN_PROGRESS`; revert without previous → 422 `GEN_NO_PREVIOUS_IMAGE`; `editedPrompt`>1500 → 400.
+- Verified live (22-check smoke incl. real Gemini error mapping) 2026-07-03.

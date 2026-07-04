@@ -122,7 +122,7 @@ referenceImagesRouter.post('/confirm', validate(confirmSchema), async (req, res)
   if (!(await storage.objectExists(s3Key))) {
     throw new AppError(
       ErrorCodes.UPL_S3_ERROR,
-      422,
+      502,
       'Uploaded object not found in storage'
     );
   }

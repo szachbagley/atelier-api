@@ -4,10 +4,8 @@ import { authenticate } from '../middleware/authenticate.js';
 import { requireProjectAccess } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
 import { updateArtStyleSchema } from '../schemas/artStyle.js';
-import {
-  generateDescriptionStub,
-  projectIdOf,
-} from './componentHelpers.js';
+import { generateComponentDescription } from '../services/imageGeneration/descriptionService.js';
+import { authUserIdOf, projectIdOf } from './componentHelpers.js';
 
 // Mounted at /projects/:projectId/art-style — one art style per project.
 export const artStyleRouter = Router({ mergeParams: true });
@@ -28,4 +26,21 @@ artStyleRouter.put('/', validate(updateArtStyleSchema), async (req, res) => {
   res.json(updated);
 });
 
-artStyleRouter.post('/generate-description', generateDescriptionStub);
+artStyleRouter.post('/generate-description', async (req, res) => {
+  const artStyle =
+    (await artStyleRepository.get(projectIdOf(req))) ??
+    (await artStyleRepository.upsert(projectIdOf(req), {}));
+
+  const aiDescription = await generateComponentDescription(
+    authUserIdOf(req),
+    'visual art style for a film',
+    {
+      name: artStyle.name,
+      description: artStyle.description,
+      colorPalette: artStyle.colorPalette,
+      styleReferences: artStyle.styleReferences,
+      technicalTerms: artStyle.technicalTerms,
+    }
+  );
+  res.json({ aiDescription });
+});

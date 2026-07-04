@@ -8,10 +8,8 @@ import {
   createCharacterSchema,
   updateCharacterSchema,
 } from '../schemas/character.js';
-import {
-  generateDescriptionStub,
-  projectIdOf,
-} from './componentHelpers.js';
+import { generateComponentDescription } from '../services/imageGeneration/descriptionService.js';
+import { authUserIdOf, projectIdOf } from './componentHelpers.js';
 
 // Mounted at /projects/:projectId/characters.
 export const charactersRouter = Router({ mergeParams: true });
@@ -67,7 +65,23 @@ charactersRouter.delete('/:characterId', async (req, res) => {
   res.status(204).send();
 });
 
-charactersRouter.post(
-  '/:characterId/generate-description',
-  generateDescriptionStub
-);
+charactersRouter.post('/:characterId/generate-description', async (req, res) => {
+  const { characterId } = req.params as { characterId: string };
+  const character = await characterRepository.findById(
+    projectIdOf(req),
+    characterId
+  );
+  if (!character) throw new NotFoundError('Character', characterId);
+
+  const aiDescription = await generateComponentDescription(
+    authUserIdOf(req),
+    'film character',
+    {
+      name: character.name,
+      physicalDescription: character.physicalDescription,
+      defaultAppearance: character.defaultAppearance,
+      personality: character.personality,
+    }
+  );
+  res.json({ aiDescription });
+});

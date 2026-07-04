@@ -11,4 +11,17 @@ export const settingsRouter = makeComponentCrudRouter({
   createSchema: createSettingSchema,
   updateSchema: updateSettingSchema,
   resourceName: 'Setting',
+  describeLabel: 'film location/setting',
+  describeFields: (record) => {
+    const s = record as settingRepository.SettingRecord;
+    return {
+      name: s.name,
+      description: s.description,
+      setDressing: s.setDressing,
+      timeOfDay: s.timeOfDay === 'unspecified' ? null : s.timeOfDay,
+      weather: s.weather === 'unspecified' ? null : s.weather,
+      lighting: s.lighting,
+      mood: s.mood,
+    };
+  },
 });

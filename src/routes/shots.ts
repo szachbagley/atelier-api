@@ -7,10 +7,20 @@ import { requireProjectAccess } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
 import {
   createShotSchema,
+  generateShotSchema,
   moveShotSchema,
   reorderSchema,
   updateShotSchema,
 } from '../schemas/shot.js';
+import { db } from '../db/index.js';
+import { ErrorCodes } from '../errors/codes.js';
+import { GenerationError } from '../errors/index.js';
+import * as imageGeneration from '../services/imageGeneration/index.js';
+import {
+  buildShotContext,
+  getPromptCompiler,
+} from '../services/promptCompiler/index.js';
+import * as storage from '../services/storage/storageService.js';
 import { projectIdOf } from './componentHelpers.js';
 import { assertComponentRefsInProject } from './storyboardHelpers.js';
 
@@ -89,6 +99,71 @@ shotsRouter.delete('/:shotId', async (req, res) => {
   const shot = await loadShot(req);
   await shotRepository.remove(shot.id);
   res.status(204).send();
+});
+
+// --- Generation (Phase 10) ---
+
+shotsRouter.get('/:shotId/compile-prompt', async (req, res) => {
+  const shot = await loadShot(req);
+  const context = await buildShotContext(projectIdOf(req), shot.id);
+  if (!context) throw new NotFoundError('Shot', shot.id);
+
+  res.json(getPromptCompiler('gemini').compile(context));
+});
+
+shotsRouter.post(
+  '/:shotId/generate',
+  validate(generateShotSchema),
+  async (req, res) => {
+    const shot = await loadShot(req);
+    const { editedPrompt } = req.body as { editedPrompt?: string };
+
+    const userId = (req.user as { id: string }).id;
+    const result = await imageGeneration.generateForShot(
+      userId,
+      projectIdOf(req),
+      shot.id,
+      editedPrompt
+    );
+
+    res.json({
+      id: shot.id,
+      imageUrl: result.url,
+      thumbnailUrl: result.thumbnailUrl,
+      prompt: result.prompt,
+      provider: result.provider,
+      status: result.status,
+    });
+  }
+);
+
+shotsRouter.post('/:shotId/revert', async (req, res) => {
+  const shot = await loadShot(req);
+
+  if (!shot.previousImageId) {
+    throw new GenerationError(
+      ErrorCodes.GEN_NO_PREVIOUS_IMAGE,
+      'No previous image to revert to'
+    );
+  }
+
+  // Swap the current and previous image pointers.
+  await db('shots').where({ id: shot.id }).update({
+    generated_image_id: shot.previousImageId,
+    previous_image_id: shot.generatedImageId,
+    updated_at: db.fn.now(),
+  });
+
+  const image = await db('generated_images')
+    .where({ id: shot.previousImageId })
+    .select('s3_key')
+    .first();
+
+  res.json({
+    id: shot.id,
+    imageUrl: image ? await storage.getImageUrl(image.s3_key) : null,
+    thumbnailUrl: image ? await storage.getThumbnailUrl(image.s3_key) : null,
+  });
 });
 
 shotsRouter.post(

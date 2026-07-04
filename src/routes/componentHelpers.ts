@@ -1,23 +1,16 @@
-import type { RequestHandler } from 'express';
 import { Router } from 'express';
 import type { Schema } from 'joi';
-import { AppError } from '../errors/AppError.js';
-import { ErrorCodes } from '../errors/codes.js';
 import { NotFoundError } from '../errors/index.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireProjectAccess } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
+import { generateComponentDescription } from '../services/imageGeneration/descriptionService.js';
 import type { Project } from '../types/models.js';
 
-// Placeholder for the generate-description endpoints created in Phase 7.
-// Phase 10 replaces this with real Gemini-backed description generation.
-export const generateDescriptionStub: RequestHandler = () => {
-  throw new AppError(
-    ErrorCodes.SYS_SERVICE_UNAVAILABLE,
-    501,
-    'AI description generation is not implemented yet'
-  );
-};
+export function authUserIdOf(req: { user?: { id: string } }): string {
+  // authenticate middleware guarantees req.user is set.
+  return (req.user as { id: string }).id;
+}
 
 export function projectIdOf(req: { project?: Project }): string {
   // requireProjectAccess middleware guarantees req.project is set.
@@ -35,13 +28,24 @@ interface ComponentRepo {
 // Standard router for flat project-scoped components (settings, props,
 // lighting): list / create / get / patch / delete / generate-description.
 // Characters and variants have bespoke routers (relations, nesting).
+// `describeFields` picks the human-readable fields sent to Gemini for
+// generate-description; `describeLabel` names the component in the prompt.
 export function makeComponentCrudRouter(options: {
   repo: ComponentRepo;
   createSchema: Schema;
   updateSchema: Schema;
   resourceName: string;
+  describeLabel: string;
+  describeFields: (record: object) => Record<string, unknown>;
 }): Router {
-  const { repo, createSchema, updateSchema, resourceName } = options;
+  const {
+    repo,
+    createSchema,
+    updateSchema,
+    resourceName,
+    describeLabel,
+    describeFields,
+  } = options;
   const router = Router({ mergeParams: true });
 
   router.use(authenticate, requireProjectAccess);
@@ -77,7 +81,17 @@ export function makeComponentCrudRouter(options: {
     res.status(204).send();
   });
 
-  router.post('/:id/generate-description', generateDescriptionStub);
+  router.post('/:id/generate-description', async (req, res) => {
+    const record = await repo.findById(projectIdOf(req), idOf(req));
+    if (!record) throw new NotFoundError(resourceName, idOf(req));
+
+    const aiDescription = await generateComponentDescription(
+      authUserIdOf(req),
+      describeLabel,
+      describeFields(record)
+    );
+    res.json({ aiDescription });
+  });
 
   return router;
 }

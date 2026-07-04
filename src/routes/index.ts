@@ -3,6 +3,7 @@ import { actsRouter } from './acts.js';
 import { artStyleRouter } from './artStyle.js';
 import { authRouter } from './auth.js';
 import { charactersRouter } from './characters.js';
+import { imageGenerationRouter } from './imageGeneration.js';
 import { lightingRouter } from './lighting.js';
 import { projectsRouter } from './projects.js';
 import { propsRouter } from './props.js';
@@ -36,6 +37,7 @@ apiRouter.use('/projects/:projectId/lighting', lightingRouter);
 
 // Images.
 apiRouter.use('/projects/:projectId/reference-images', referenceImagesRouter);
+apiRouter.use('/projects/:projectId/generate-image', imageGenerationRouter);
 
 // Storyboard structure (acts → scenes → shots).
 apiRouter.use('/projects/:projectId/acts/:actId/scenes', actScenesRouter);

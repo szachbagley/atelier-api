@@ -9,10 +9,8 @@ import {
   createVariantSchema,
   updateVariantSchema,
 } from '../schemas/variant.js';
-import {
-  generateDescriptionStub,
-  projectIdOf,
-} from './componentHelpers.js';
+import { generateComponentDescription } from '../services/imageGeneration/descriptionService.js';
+import { authUserIdOf, projectIdOf } from './componentHelpers.js';
 
 // Mounted at /projects/:projectId/characters/:characterId/variants.
 export const variantsRouter = Router({ mergeParams: true });
@@ -83,7 +81,30 @@ variantsRouter.delete('/:variantId', async (req, res) => {
   res.status(204).send();
 });
 
-variantsRouter.post(
-  '/:variantId/generate-description',
-  generateDescriptionStub
-);
+// Combined base character + variant description (per docs/API.md).
+variantsRouter.post('/:variantId/generate-description', async (req, res) => {
+  const { variantId } = req.params as { variantId: string };
+  const variant = await variantRepository.findById(
+    characterIdOf(req),
+    variantId
+  );
+  if (!variant) throw new NotFoundError('Variant', variantId);
+
+  const character = await characterRepository.findById(
+    projectIdOf(req),
+    characterIdOf(req)
+  );
+
+  const aiDescription = await generateComponentDescription(
+    authUserIdOf(req),
+    'film character variant (base character plus this variant appearance)',
+    {
+      characterName: character?.name,
+      physicalDescription: character?.physicalDescription,
+      personality: character?.personality,
+      variantName: variant.name,
+      variantDescription: variant.description,
+    }
+  );
+  res.json({ aiDescription });
+});

@@ -160,6 +160,19 @@ export const updateShotSchema = Joi.object({
   caption: text,
 }).min(1);
 
+export const generateShotSchema = Joi.object({
+  editedPrompt: Joi.string().trim().min(1).max(1500).messages({
+    'string.max': 'editedPrompt must be 1500 characters or fewer',
+  }),
+});
+
+export const generateImageSchema = Joi.object({
+  prompt: Joi.string().trim().min(1).max(1500).required().messages({
+    'any.required': 'prompt is required',
+    'string.max': 'prompt must be 1500 characters or fewer',
+  }),
+});
+
 export const moveShotSchema = Joi.object({
   targetSceneId: Joi.string().uuid().required().messages({
     'any.required': 'targetSceneId is required',

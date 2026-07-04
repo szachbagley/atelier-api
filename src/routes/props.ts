@@ -8,4 +8,13 @@ export const propsRouter = makeComponentCrudRouter({
   createSchema: createPropSchema,
   updateSchema: updatePropSchema,
   resourceName: 'Prop',
+  describeLabel: 'film prop',
+  describeFields: (record) => {
+    const p = record as propRepository.PropRecord;
+    return {
+      name: p.name,
+      description: p.description,
+      handledBy: p.handledBy,
+    };
+  },
 });
