@@ -1,12 +1,15 @@
 import { Router } from 'express';
+import { actsRouter } from './acts.js';
 import { artStyleRouter } from './artStyle.js';
 import { authRouter } from './auth.js';
 import { charactersRouter } from './characters.js';
 import { lightingRouter } from './lighting.js';
 import { projectsRouter } from './projects.js';
 import { propsRouter } from './props.js';
+import { actScenesRouter, scenesRouter } from './scenes.js';
 import { settingsRouter } from './settings.js';
 import { sharedRouter } from './shared.js';
+import { sceneShotsRouter, shotsRouter } from './shots.js';
 import { userSettingsRouter } from './userSettings.js';
 import { variantsRouter } from './variants.js';
 
@@ -29,3 +32,10 @@ apiRouter.use(
 apiRouter.use('/projects/:projectId/settings', settingsRouter);
 apiRouter.use('/projects/:projectId/props', propsRouter);
 apiRouter.use('/projects/:projectId/lighting', lightingRouter);
+
+// Storyboard structure (acts → scenes → shots).
+apiRouter.use('/projects/:projectId/acts/:actId/scenes', actScenesRouter);
+apiRouter.use('/projects/:projectId/acts', actsRouter);
+apiRouter.use('/projects/:projectId/scenes/:sceneId/shots', sceneShotsRouter);
+apiRouter.use('/projects/:projectId/scenes', scenesRouter);
+apiRouter.use('/projects/:projectId/shots', shotsRouter);

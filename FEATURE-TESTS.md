@@ -230,3 +230,32 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Missing `name` → 400; invalid enum → 400; empty PATCH body → 400 (`.min(1)`).
 - Non-owner → 403 `AUTHZ_PROJECT_ACCESS_DENIED` at the project gate; wrong-project resource → 404 `RES_NOT_FOUND`; stubs → 501 `SYS_SERVICE_UNAVAILABLE`.
 - Verified live (27-check smoke script) 2026-07-03.
+
+---
+
+## Storyboard structure (acts / scenes / shots)
+
+**Status:** implemented · **Related:** plan Steps 8.1–8.4; `src/routes/{acts,scenes,shots}.ts`, `src/routes/storyboardHelpers.ts`, `src/db/repositories/{act,scene,shot}Repository.ts`, `src/utils/sequencing.ts`, `src/schemas/{act,scene,shot}.ts`
+
+### Happy path
+- Hierarchy: act (auto-seq 1000, 2000, …) → scene (per-act sequence, optional default setting/lighting) → shot (per-scene sequence, characters+variants and props via junction tables written transactionally).
+- Lists carry aggregates (`sceneCount`, `shotCount`) and resolved default names; shot list embeds character/variant names; shot detail resolves **effective** setting/lighting with `source: 'shot' | 'scene'`.
+- Reorder endpoints take `orderedIds` (must equal the exact active-child set) → `{updated: N}` with resequenced GAP spacing; move endpoints append at the target parent's end.
+- Annotations: `AnnotationLayer` JSON validated (arrow/textBox/symbol discriminated union), stored, round-trips as parsed JSON.
+
+### Edge cases
+- Sequence numbers per parent (scene seq restarts per act, shot seq per scene).
+- Reorder rejects partial/duplicated/foreign id sets → 400.
+- Junction replacement: PATCH with `characters: []` clears; omitting the key leaves junctions untouched.
+- Soft-delete cascade is enforced by chain checks (shot→scene→act→project all active): deleting an act 404s its scenes and shots and drops them from project aggregates.
+- Cross-project references (settings/lighting/characters/variants/props in bodies, move targets) rejected 400 — prevents attaching another user's components.
+
+### Known limitations
+- `imageUrl`/`thumbnailUrl` null until Phase 9/10 (no generated images yet).
+- Reorder resequences one UPDATE per row inside a transaction (fine at storyboard scale).
+- `getInsertBetweenSequence` exists but no insert-between endpoint is specced (drag-reorder uses full reorder).
+
+### Error scenarios
+- Invalid enums (shotType/cameraAngle/cameraMovement), bad annotation schema (wrong version/shape), empty PATCH → 400.
+- Unknown act/scene/shot in project → 404 `RES_NOT_FOUND`; non-owner → 403 `AUTHZ_PROJECT_ACCESS_DENIED`.
+- Verified live (30-check smoke script) 2026-07-03; integration tests land in Phase 13 (`tests/integration/shots.test.ts`).
