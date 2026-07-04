@@ -18,6 +18,12 @@ export const config = {
   env: optional('NODE_ENV', 'development'),
   port: parseInt(optional('PORT', '3000'), 10),
 
+  // Public-facing base URL of the frontend app; used to build absolute links
+  // such as project share URLs (`${publicUrl}/shared/{token}`).
+  app: {
+    publicUrl: optional('PUBLIC_APP_URL', 'http://localhost:5173'),
+  },
+
   database: {
     url: required('DATABASE_URL'),
   },

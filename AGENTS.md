@@ -98,7 +98,7 @@ Write the *strategy* (what to test and why), not just a list of existing test fi
 
 Hold the line on these. Reviewers will push back when they're violated.
 
-- **DRY** — No copy-paste logic. Shared behavior belongs in `utils/`, services, or repositories. Snake↔camel conversion, soft-delete filtering, and sequence numbering already have helpers — reuse them.
+- **DRY** — No copy-paste logic. Shared behavior belongs in `utils/`, services, or repositories. Soft-delete filtering and sequence numbering already have helpers — reuse them. Snake↔camel conversion gets a shared helper when the first repository lands (Step 6.3) — build it once there, then reuse it everywhere.
 - **SOLID** —
   - *Single responsibility:* routes handle HTTP; services hold business logic; repositories own data access. Don't write SQL in a route handler.
   - *Open/closed:* extend via new modules/adapters (e.g. prompt-compiler adapters), don't bolt special cases onto stable code.

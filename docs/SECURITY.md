@@ -345,30 +345,31 @@ Applied to shot descriptions, component descriptions, AI descriptions, and any u
 
 ### Resource Ownership
 
-All resources are scoped to the owning user. Authorization is enforced at the middleware level:
+All resources are scoped to the owning user. Authorization is enforced at the middleware level (`src/middleware/authorize.ts`); failures return 403 `AUTHZ_PROJECT_ACCESS_DENIED`, and ownership failures are indistinguishable from unknown IDs:
 
 ```typescript
 export async function requireProjectAccess(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
-) {
-  const { projectId } = req.params;
-  const userId = req.user!.id;
-  
-  const project = await db('projects')
-    .where({ id: projectId, user_id: userId })
-    .whereNull('deleted_at')
-    .first();
-  
+): Promise<void> {
+  const { projectId } = req.params as { projectId: string };
+  const userId = (req.user as { id: string }).id;
+
+  const project = await addActiveFilter(
+    db<Project>('projects').where({ id: projectId, user_id: userId })
+  ).first();
+
   if (!project) {
-    throw new ForbiddenError('Access denied to this project');
+    throw new ForbiddenError('project', ErrorCodes.AUTHZ_PROJECT_ACCESS_DENIED);
   }
-  
-  req.project = project;
+
+  req.project = project; // typed Project via src/types/express.d.ts
   next();
 }
 ```
+
+A `requireProjectAccessAllowDeleted` variant skips the soft-delete filter for the restore route.
 
 ### Shared Project Access
 
@@ -428,31 +429,28 @@ Referrer-Policy: strict-origin-when-cross-origin
 
 ## CORS Configuration
 
+Allowed origins are config-driven via the `CORS_ORIGINS` env var (comma-separated) — production origins are set through the environment, not hardcoded:
+
 ```typescript
-const allowedOrigins = [
-  'https://atelier.app',
-  'https://www.atelier.app',
-];
+// src/middleware/cors.ts
 
-if (process.env.NODE_ENV === 'development') {
-  allowedOrigins.push('http://localhost:5173');
-}
+import cors from 'cors';
+import { config } from '../config/index.js';
 
-app.use(cors({
+export const corsMiddleware = cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    if (config.cors.origins.includes(origin)) {
+      return callback(null, true);
     }
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
   exposedHeaders: ['X-Request-ID'],
   maxAge: 86400,
-}));
+});
 ```
 
 ---
@@ -676,27 +674,18 @@ npm audit --audit-level=high
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/backend"
+    directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    
-  - package-ecosystem: "npm"
-    directory: "/frontend"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    
+
   - package-ecosystem: "docker"
-    directory: "/backend"
-    schedule:
-      interval: "weekly"
-      
-  - package-ecosystem: "docker"
-    directory: "/frontend"
+    directory: "/"
     schedule:
       interval: "weekly"
 ```
+
+(The frontend repository carries its own Dependabot configuration.)
 
 ### Container Scanning
 

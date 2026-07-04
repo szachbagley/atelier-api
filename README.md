@@ -1,8 +1,14 @@
-# Atelier
+# Atelier API
 
-Atelier is an AI-powered storyboarding tool for filmmakers. It streamlines the concept art and storyboarding phases of pre-production by combining conversational AI, image generation, and professional annotation tools into a single workflow.
+Backend API service for **Atelier**, an AI-powered storyboarding tool for filmmakers.
+Atelier streamlines the concept art and storyboarding phases of pre-production by
+combining conversational AI, image generation, and professional annotation tools into a
+single workflow.
 
-## What It Does
+This repository (`atelier-api`) is the **backend only**. The React frontend lives in a
+separate repository.
+
+## What Atelier Does
 
 **Concept Art Phase**
 - Generate concept art through conversation with AI to visualize characters, settings, props, and art styles
@@ -20,10 +26,9 @@ Atelier is an AI-powered storyboarding tool for filmmakers. It streamlines the c
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend** | React 18, TypeScript, Tailwind CSS, React Query, Zustand, Fabric.js |
-| **Backend** | Node.js, Express, TypeScript |G
-| **Database** | MySQL 8.0 |
-| **Infrastructure** | AWS (ECS Fargate, S3, EC2, ALB, Secrets Manager) |
+| **Runtime** | Node.js 20+, Express 5, TypeScript (ESM) |
+| **Database** | MySQL 8.0 (Knex query builder + migrations) |
+| **Infrastructure** | AWS (ECS Fargate, S3, ALB, Secrets Manager) |
 | **AI Integration** | Google Gemini (Imagen) |
 | **Containerization** | Docker |
 
@@ -32,7 +37,7 @@ Atelier is an AI-powered storyboarding tool for filmmakers. It streamlines the c
 ### Prerequisites
 
 - Node.js 20+
-- Docker and Docker Compose
+- A MySQL 8.0 instance (Docker is the easiest way to run one locally)
 - AWS CLI (configured with credentials for S3 access)
 - Google Gemini API key
 
@@ -41,52 +46,60 @@ Atelier is an AI-powered storyboarding tool for filmmakers. It streamlines the c
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/your-org/atelier.git
-   cd atelier
+   git clone https://github.com/szachbagley/atelier-api.git
+   cd atelier-api
    ```
 
-2. **Set up environment variables**
+2. **Install dependencies**
 
    ```bash
-   # Backend
-   cp backend/.env.example backend/.env
-   # Edit backend/.env with your values
-
-   # Frontend
-   cp frontend/.env.example frontend/.env
-   # Edit frontend/.env with your values
+   npm install
    ```
 
-3. **Start the development environment**
+3. **Set up environment variables**
 
    ```bash
-   docker-compose up
+   cp .env.example .env
+   # Edit .env with your values (see Environment Variables below)
    ```
 
-   This starts:
-   - Frontend dev server at `http://localhost:5173`
-   - Backend API at `http://localhost:3000`
-   - MySQL database at `localhost:3306`
+4. **Start a MySQL database**
 
-4. **Run database migrations**
+   Any MySQL 8.0 instance works. To run one locally with Docker:
 
    ```bash
-   cd backend
+   docker run --name atelier-db -e MYSQL_DATABASE=atelier \
+     -e MYSQL_USER=atelier -e MYSQL_PASSWORD=localpassword \
+     -e MYSQL_ROOT_PASSWORD=rootpassword -p 3306:3306 -d mysql:8.0
+   ```
+
+   Point `DATABASE_URL` at it (use `127.0.0.1` rather than the `db` host when running
+   outside Docker Compose).
+
+5. **Run database migrations**
+
+   ```bash
    npm run migrate
    ```
 
-5. **Access the application**
+6. **Start the development server**
 
-   Open `http://localhost:5173` in your browser.
+   ```bash
+   npm run dev
+   ```
+
+   The API listens on `http://localhost:3000` (health check at
+   `http://localhost:3000/health`).
 
 ### Environment Variables
 
-**Backend (`backend/.env`)**
+Configuration is loaded from `.env` (see `.env.example`). Variables marked *optional*
+fall back to the defaults shown.
 
 ```bash
 # Server
-NODE_ENV=development
-PORT=3000
+NODE_ENV=development             # optional (default: development)
+PORT=3000                        # optional (default: 3000)
 
 # Database
 DATABASE_URL=mysql://atelier:localpassword@db:3306/atelier
@@ -94,100 +107,49 @@ DATABASE_URL=mysql://atelier:localpassword@db:3306/atelier
 # Authentication
 JWT_ACCESS_SECRET=your-access-secret-min-32-chars
 JWT_REFRESH_SECRET=your-refresh-secret-min-32-chars
+JWT_ACCESS_EXPIRY=15m            # optional (default: 15m)
+JWT_REFRESH_EXPIRY=7d            # optional (default: 7d)
+BCRYPT_ROUNDS=12                 # optional (default: 12)
 
 # Encryption (for storing user API keys)
 ENCRYPTION_KEY=your-encryption-key-64-hex-chars
 
-# AWS
-AWS_REGION=us-west-2
+# Public-facing frontend app URL (used to build project share links)
+PUBLIC_APP_URL=http://localhost:5173   # optional (default: http://localhost:5173)
+
+# AWS (credentials are resolved by the AWS SDK default credential chain,
+# not read by config — set them here for local development convenience)
+AWS_REGION=us-west-2             # optional (default: us-west-2)
 AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 S3_BUCKET=atelier-dev
 
 # CORS
-CORS_ORIGINS=http://localhost:5173
-```
-
-**Frontend (`frontend/.env`)**
-
-```bash
-VITE_API_URL=http://localhost:3000
+CORS_ORIGINS=http://localhost:5173     # optional (default: http://localhost:5173)
 ```
 
 ## Project Structure
 
 ```
-atelier/
-├── backend/
-│   ├── src/
-│   │   ├── config/           # Configuration files
-│   │   ├── db/               # Database connection and migrations
-│   │   │   ├── migrations/   # Knex migration files
-│   │   │   └── init/         # Init scripts for Docker
-│   │   ├── errors/           # Error classes and codes
-│   │   ├── middleware/       # Express middleware
-│   │   ├── routes/           # API route handlers
-│   │   ├── schemas/          # Joi validation schemas
-│   │   ├── services/         # Business logic
-│   │   │   ├── auth/
-│   │   │   ├── encryption/
-│   │   │   ├── imageGeneration/
-│   │   │   ├── promptCompiler/
-│   │   │   └── storage/
-│   │   ├── types/            # TypeScript type definitions
-│   │   ├── utils/            # Utility functions
-│   │   ├── app.ts            # Express app setup
-│   │   └── server.ts         # Server entry point
-│   ├── tests/
-│   │   ├── unit/
-│   │   ├── integration/
-│   │   └── fixtures/
-│   ├── Dockerfile
-│   └── package.json
-│
-├── frontend/
-│   ├── src/
-│   │   ├── api/              # API client and endpoints
-│   │   ├── assets/           # Static assets
-│   │   ├── components/       # React components
-│   │   │   ├── common/       # Shared UI components
-│   │   │   ├── layout/       # Layout components
-│   │   │   ├── auth/
-│   │   │   ├── projects/
-│   │   │   ├── components-library/
-│   │   │   ├── storyboard/
-│   │   │   ├── annotations/
-│   │   │   ├── generation/
-│   │   │   └── settings/
-│   │   ├── hooks/            # Custom React hooks
-│   │   ├── pages/            # Page components
-│   │   ├── routes/           # Route definitions
-│   │   ├── stores/           # Zustand stores
-│   │   ├── types/            # TypeScript types
-│   │   ├── utils/            # Utility functions
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── tests/
-│   │   ├── unit/
-│   │   └── e2e/
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── package.json
-│
-├── docs/                     # Documentation
-│   ├── ARCHITECTURE.md
-│   ├── DATABASE.md
-│   ├── API.md
-│   ├── BACKEND.md
-│   ├── FRONTEND.md
-│   ├── INFRASTRUCTURE.md
-│   ├── DEPLOYMENT.md
-│   ├── SECURITY.md
-│   ├── TESTING.md
-│   └── DEFERRED_FEATURES.md
-│
-├── docker-compose.yml        # Local development setup
-└── README.md
+atelier-api/
+├── src/
+│   ├── config/           # Environment configuration
+│   ├── db/               # Knex connection and migrations
+│   │   └── migrations/   # Migration files
+│   ├── errors/           # Error classes and codes
+│   ├── middleware/       # Express middleware
+│   ├── routes/           # API route handlers
+│   ├── schemas/          # Joi validation schemas
+│   ├── services/         # Business logic (auth, encryption, … per phase)
+│   ├── types/            # TypeScript type definitions
+│   ├── utils/            # Utility functions
+│   ├── app.ts            # Express app setup
+│   └── server.ts         # Server entry point
+├── tests/
+│   └── unit/             # Unit tests
+├── docs/                 # Documentation (see below)
+├── BACKEND_DEVELOPMENT_PLAN.md
+└── package.json
 ```
 
 ## Documentation
@@ -207,39 +169,25 @@ atelier/
 
 ## Development Commands
 
-**Backend**
-
 ```bash
-cd backend
-
-npm run dev          # Start development server with hot reload
-npm run build        # Build for production
-npm run start        # Start production server
-npm run lint         # Run ESLint
-npm run test         # Run unit tests
-npm run test:watch   # Run tests in watch mode
+npm run dev               # Start development server with hot reload
+npm run build             # Compile TypeScript to dist/
+npm run start             # Start the compiled production server
+npm run lint              # Run ESLint
+npm run test              # Run unit tests
+npm run test:watch        # Run unit tests in watch mode
+npm run test:coverage     # Run unit tests with coverage
 npm run test:integration  # Run integration tests
-npm run migrate      # Run database migrations
-```
-
-**Frontend**
-
-```bash
-cd frontend
-
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run preview      # Preview production build
-npm run lint         # Run ESLint
-npm run test         # Run unit tests
-npm run test:e2e     # Run Playwright E2E tests
+npm run test:all          # Run the full test suite
+npm run migrate           # Run database migrations
+npm run migrate:make      # Scaffold a new migration
 ```
 
 ## Contributing
 
 1. Create a feature branch from `main`
 2. Make your changes
-3. Ensure tests pass: `npm run test:all`
+3. Ensure the build, lint, and tests pass: `npm run build && npm run lint && npm run test:all`
 4. Submit a pull request
 
 ## License

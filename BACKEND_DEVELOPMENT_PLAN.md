@@ -2,7 +2,7 @@
 
 This document defines the phased implementation plan for the Atelier backend API. Each phase builds on the previous one, and each step within a phase includes the specific files to create and the acceptance criteria.
 
-All implementation follows the specifications in `docs/README.md`, `docs/DATABASE.md`, `docs/API.md`, `docs/BACKEND.md`, `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/TESTING.md`.
+All implementation follows the specifications in `README.md`, `docs/DATABASE.md`, `docs/API.md`, `docs/BACKEND.md`, `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/TESTING.md`.
 
 ---
 
@@ -37,8 +37,8 @@ Bootstrap the Node.js/Express/TypeScript project with all tooling, configuration
 Create the following configuration files:
 
 - `tsconfig.json` — Target ES2022, module NodeNext, strict mode, `src/` as rootDir, `dist/` as outDir, path alias `@/*` → `src/*`.
-- `.eslintrc.cjs` — TypeScript ESLint with Prettier compatibility. Rules: no unused vars (warn), no explicit any (warn), consistent return types.
-- `.env.example` — Template with all environment variables from `docs/README.md` (NODE_ENV, PORT, DATABASE_URL, JWT secrets, ENCRYPTION_KEY, AWS config, CORS_ORIGINS).
+- `eslint.config.mjs` — ESLint flat config: TypeScript ESLint with Prettier compatibility. Rules: no unused vars (warn), no explicit any (warn), consistent return types.
+- `.env.example` — Template with all environment variables from `README.md` (NODE_ENV, PORT, DATABASE_URL, JWT secrets, ENCRYPTION_KEY, AWS config, CORS_ORIGINS).
 - `.gitignore` — node_modules, dist, .env, coverage, *.log.
 - `nodemon.json` — Watch `src/`, extensions `ts`, exec `tsx src/server.ts`.
 
@@ -47,7 +47,7 @@ Add npm scripts to `package.json`:
 dev          → nodemon
 build        → tsc
 start        → node dist/server.js
-lint         → eslint src/ --ext .ts
+lint         → eslint src/
 test         → vitest run
 test:watch   → vitest
 test:coverage → vitest run --coverage

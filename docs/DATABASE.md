@@ -173,6 +173,10 @@ CREATE TABLE user_api_keys (
 | is_valid | BOOLEAN | Whether key passed last validation |
 | deleted_at | TIMESTAMP | Soft delete timestamp |
 
+> The `provider` enum is forward-looking: the API layer (Joi schema, `docs/API.md`)
+> currently accepts only `gemini` for the MVP; the other values are reserved for
+> future providers.
+
 #### refresh_tokens
 
 Tracks issued refresh tokens for session management.

@@ -2,6 +2,13 @@
 
 This document describes the deployment configuration for Atelier, including Docker setup, CI/CD pipeline, and deployment procedures.
 
+> **Status note.** This document predates the split of the codebase into separate
+> backend (`atelier-api`) and frontend repositories. Paths such as `backend/`,
+> `frontend/`, and the combined `docker-compose.yml` reflect the old monorepo layout
+> and will be revised when CI/CD and infrastructure are built out in Phase 12 of
+> `BACKEND_DEVELOPMENT_PLAN.md`. Treat the concepts (build stages, pipeline shape,
+> deployment procedure) as the spec, not the literal paths.
+
 ## Docker Configuration
 
 ### Backend Dockerfile
@@ -740,7 +747,7 @@ fields @timestamp, @duration
 ### Health Check URLs
 
 ```
-Production Backend:  https://atelier.app/api/health
+Production Backend:  https://atelier.app/health
 Production Frontend: https://atelier.app/
 ```
 

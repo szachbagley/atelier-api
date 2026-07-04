@@ -338,11 +338,11 @@ The prompt compiler transforms structured shot data into optimized text prompts 
                     │         Section Builders            │
                     │                                     │
                     │  buildFramingSection()              │
+                    │  buildDescriptionSection()          │
                     │  buildCharactersSection()           │
                     │  buildPropsSection()                │
                     │  buildSettingSection()              │
                     │  buildLightingSection()             │
-                    │  buildDescriptionSection()          │
                     │  buildStyleSection()                │
                     │  buildQualitySection()              │
                     │                                     │

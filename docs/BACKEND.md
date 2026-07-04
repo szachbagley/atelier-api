@@ -1566,41 +1566,66 @@ export function requestIdMiddleware(
 
 ### Project Access Middleware
 
-Verifies the authenticated user owns the requested project.
+Verifies the authenticated user owns the requested project and attaches it to
+`req.project` (typed `Project` in `src/types/express.d.ts` — no global redeclare
+needed). Failures return 403 `AUTHZ_PROJECT_ACCESS_DENIED`; ownership failures and
+unknown IDs are intentionally indistinguishable.
 
 ```typescript
-// src/middleware/projectAccess.ts
+// src/middleware/authorize.ts
 
-import { Request, Response, NextFunction } from 'express';
-import { db } from '../db';
-import { ForbiddenError, NotFoundError } from '../errors';
+import type { NextFunction, Request, Response } from 'express';
+import { db } from '../db/index.js';
+import { ErrorCodes } from '../errors/codes.js';
+import { ForbiddenError } from '../errors/index.js';
+import type { Project } from '../types/models.js';
+import { addActiveFilter } from '../utils/softDelete.js';
 
-declare global {
-  namespace Express {
-    interface Request {
-      project?: any;
-    }
+// Loads the project named in the URL, verifying the authenticated user owns it,
+// and attaches it to req.project for downstream handlers. `authenticate` must
+// run earlier in the chain so req.user is populated.
+async function attachProject(req: Request, allowDeleted: boolean): Promise<void> {
+  const { projectId } = req.params as { projectId: string };
+  const userId = (req.user as { id: string }).id;
+
+  const base = db<Project>('projects').where({
+    id: projectId,
+    user_id: userId,
+  });
+  const project = await (allowDeleted ? base : addActiveFilter(base)).first();
+
+  if (!project) {
+    // 403 (not 404) per docs/API.md; ownership failures and unknown IDs are
+    // intentionally indistinguishable.
+    throw new ForbiddenError('project', ErrorCodes.AUTHZ_PROJECT_ACCESS_DENIED);
   }
+
+  req.project = project;
 }
 
+/**
+ * Require that the authenticated user owns the active (non-deleted) project in
+ * the URL. The common gate for all /projects/:projectId routes.
+ */
 export async function requireProjectAccess(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> {
-  const { projectId } = req.params;
-  const userId = req.user!.id;
-  
-  const project = await db('projects')
-    .where({ id: projectId, user_id: userId })
-    .whereNull('deleted_at')
-    .first();
-  
-  if (!project) {
-    throw new ForbiddenError('project');
-  }
-  
-  req.project = project;
+  await attachProject(req, false);
+  next();
+}
+
+/**
+ * Variant that also matches soft-deleted projects — used by the restore route,
+ * which by definition operates on a deleted project.
+ */
+export async function requireProjectAccessAllowDeleted(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  await attachProject(req, true);
   next();
 }
 ```
@@ -1614,32 +1639,40 @@ export async function requireProjectAccess(
 
 import Joi from 'joi';
 
-export const authSchemas = {
-  register: Joi.object({
-    email: Joi.string()
-      .email()
-      .required()
-      .max(255)
-      .messages({
-        'string.email': 'Please enter a valid email address',
-        'any.required': 'Email is required',
-      }),
-    password: Joi.string()
-      .required()
-      .min(8)
-      .max(128)
-      .messages({
-        'string.min': 'Password must be at least 8 characters',
-        'any.required': 'Password is required',
-      }),
+const passwordComplexity = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
+
+export const registerSchema = Joi.object({
+  email: Joi.string().email().max(255).required().messages({
+    'string.email': 'Please enter a valid email address',
+    'string.max': 'Email must be 255 characters or fewer',
+    'any.required': 'Email is required',
   }),
-  
-  login: Joi.object({
-    email: Joi.string().email().required(),
-    password: Joi.string().required(),
+  password: Joi.string()
+    .min(8)
+    .max(128)
+    .pattern(passwordComplexity)
+    .required()
+    .messages({
+      'string.min': 'Password must be at least 8 characters',
+      'string.max': 'Password must be 128 characters or fewer',
+      'string.pattern.base':
+        'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+      'any.required': 'Password is required',
+    }),
+});
+
+export const loginSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Please enter a valid email address',
+    'any.required': 'Email is required',
   }),
-};
+  password: Joi.string().required().messages({
+    'any.required': 'Password is required',
+  }),
+});
 ```
+
+Password complexity (one uppercase, one lowercase, one digit) matches the requirements in `docs/SECURITY.md`. Schemas are individual named exports, one per route.
 
 ```typescript
 // src/schemas/shot.ts
@@ -1716,7 +1749,7 @@ import { authService } from '../services/auth/authService';
 import { authConfig } from '../config/auth';
 import { authenticate } from '../middleware/authenticate';
 import { validate } from '../middleware/validate';
-import { authSchemas } from '../schemas/auth';
+import { registerSchema, loginSchema } from '../schemas/auth';
 import { authRateLimiter } from '../middleware/rateLimiter';
 import { UnauthorizedError } from '../errors';
 import { ErrorCodes } from '../errors/codes';
@@ -1724,7 +1757,7 @@ import { ErrorCodes } from '../errors/codes';
 const router = Router();
 
 // POST /api/auth/register
-router.post('/register', authRateLimiter, validate(authSchemas.register), async (req, res) => {
+router.post('/register', authRateLimiter, validate(registerSchema), async (req, res) => {
   const { email, password } = req.body;
   
   const result = await authService.register(email, password);
@@ -1742,7 +1775,7 @@ router.post('/register', authRateLimiter, validate(authSchemas.register), async 
 });
 
 // POST /api/auth/login
-router.post('/login', authRateLimiter, validate(authSchemas.login), async (req, res) => {
+router.post('/login', authRateLimiter, validate(loginSchema), async (req, res) => {
   const { email, password } = req.body;
   
   const result = await authService.login(email, password, {
@@ -2006,12 +2039,20 @@ export async function runMigrations(): Promise<void> {
 
 ### Repository Pattern
 
+> **Note (illustrative sketch).** The example below shows the *shape* of a repository
+> only. It is intentionally minimal and is **not** the full `projectRepository` contract.
+> `BACKEND_DEVELOPMENT_PLAN.md` Step 6.3 is authoritative and additionally requires:
+> (a) returning **camelCase** fields (repositories own the snake↔camel boundary),
+> (b) `findByUserId`/`findById` including **`actCount`/`shotCount` aggregates**, and
+> (c) `create()` inserting the project **and a default `art_style` row in one transaction**.
+> This snippet will be refreshed to match the real implementation once Step 6.3 lands.
+
 ```typescript
 // src/db/repositories/projectRepository.ts
 
 import { db } from '../index';
 import { Project } from '../../types/models';
-import { notDeleted, softDelete } from '../../utils/softDelete';
+import { softDelete } from '../../utils/softDelete';
 
 export const projectRepository = {
   
@@ -2066,11 +2107,7 @@ export const projectRepository = {
 ```typescript
 // src/utils/softDelete.ts
 
-import { Knex } from 'knex';
-
-export function notDeleted<T>(query: Knex.QueryBuilder<T>): Knex.QueryBuilder<T> {
-  return query.whereNull('deleted_at');
-}
+import type { Knex } from 'knex';
 
 export async function softDelete(
   db: Knex,
@@ -2092,14 +2129,20 @@ export async function restore(
     .update({ deleted_at: null });
 }
 
-export async function purgeDeleted(
+export function addActiveFilter<TRecord extends object, TResult>(
+  query: Knex.QueryBuilder<TRecord, TResult>
+): Knex.QueryBuilder<TRecord, TResult> {
+  return query.whereNull('deleted_at');
+}
+
+export async function permanentDelete(
   db: Knex,
   table: string,
-  retentionDays: number = 30
+  olderThanDays: number
 ): Promise<number> {
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - retentionDays);
-  
+  cutoff.setDate(cutoff.getDate() - olderThanDays);
+
   return db(table)
     .whereNotNull('deleted_at')
     .where('deleted_at', '<', cutoff)
@@ -2116,30 +2159,65 @@ export async function purgeDeleted(
 
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { corsMiddleware } from './middleware/cors';
-import { securityHeaders } from './middleware/securityHeaders';
-import { requestIdMiddleware } from './middleware/requestId';
-import { errorHandler } from './middleware/errorHandler';
-import routes from './routes';
+import pinoHttp from 'pino-http';
+import { logger } from './utils/logger.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { requestId } from './middleware/requestId.js';
+import { securityHeaders } from './middleware/securityHeaders.js';
+import { corsMiddleware } from './middleware/cors.js';
+import { globalLimiter } from './middleware/rateLimiter.js';
+import { apiRouter } from './routes/index.js';
 
 const app = express();
 
-// Middleware
-app.use(securityHeaders);
-app.use(corsMiddleware);
-app.use(express.json({ limit: '10mb' }));
-app.use(cookieParser());
-app.use(requestIdMiddleware);
+// --- Request ID ---
+app.use(requestId);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy' });
+// --- Logging ---
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) =>
+      (req as express.Request & { requestId: string }).requestId,
+    customLogLevel: (_req, res, err) => {
+      if (res.statusCode >= 500 || err) return 'error';
+      if (res.statusCode >= 400) return 'warn';
+      return 'info';
+    },
+    serializers: {
+      req: (req) => ({
+        id: req.id,
+        method: req.method,
+        url: req.url,
+      }),
+      res: (res) => ({
+        statusCode: res.statusCode,
+      }),
+    },
+  })
+);
+
+// --- Security Headers ---
+app.use(securityHeaders);
+
+// --- CORS ---
+app.use(corsMiddleware);
+
+// --- Body Parsing ---
+app.use(cookieParser());
+app.use(express.json({ limit: '1mb' }));
+
+// --- Health Check ---
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
 });
 
-// API routes
-app.use('/api', routes);
+// --- API Routes ---
+// globalLimiter (100 req/min per IP) guards all /api traffic. /health is mounted
+// above and intentionally exempt so infra healthchecks are never throttled.
+app.use('/api', globalLimiter, apiRouter);
 
-// Error handler (must be last)
+// --- Global Error Handler ---
 app.use(errorHandler);
 
 export { app };
