@@ -175,3 +175,30 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Non-owner, unknown, or (active variant) soft-deleted project → `403` `AUTHZ_PROJECT_ACCESS_DENIED` (deliberately not `404`, to match `docs/API.md`; existence is not revealed via a distinct status).
 - Unauthenticated request → fails earlier at `authenticate` with `AUTH_TOKEN_MISSING` (401) before authorization runs.
 - `ForbiddenError`'s default code remains `AUTHZ_RESOURCE_ACCESS_DENIED` (used by generic resource guards); the project middleware passes `AUTHZ_PROJECT_ACCESS_DENIED` explicitly. Both are 403 with a `requestId`.
+
+---
+
+## Projects (CRUD / restore / share) + shared public view
+
+**Status:** implemented · **Related:** plan Steps 6.2–6.6; `src/routes/projects.ts`, `src/routes/shared.ts`, `src/db/repositories/projectRepository.ts`, `src/utils/caseMapping.ts`; `docs/API.md` §Projects
+
+### Happy path
+- Create → 201 `{id, title, isPublic:false, createdAt}`; a default (empty) `art_styles` row is created in the same transaction (proven by the shared view returning `artStyle` non-null for a brand-new project).
+- List → `{data:[…]}` with `actCount`/`shotCount` aggregates (0 for fresh projects); detail adds `sceneCount`/`characterCount`/`shareToken`/`deletedAt`.
+- Update (PATCH title) → 200 with fresh `updatedAt`; delete → 204 (soft); restore → 200 `{deletedAt:null}`.
+- Share → `{shareToken, shareUrl: ${PUBLIC_APP_URL}/shared/{token}, isPublic:true}`; public `GET /api/shared/:token` needs no auth and returns the full acts→scenes→shots tree; revoke flips back and kills the link (404 afterwards).
+
+### Edge cases
+- Aggregates use correlated subqueries with per-level soft-delete filters (deleted scenes don't count their shots).
+- Re-sharing regenerates the token (old links die). Restore uses `requireProjectAccessAllowDeleted`.
+- All repository output is camelCase (`caseMapping.ts`); `is_public` tinyint → boolean cast.
+
+### Known limitations
+- Shared-view `imageUrl`/`thumbnailUrl` are `null` until Phase 9 presigns S3 URLs.
+- No pagination on the project list (MVP; fine for expected volumes).
+
+### Error scenarios
+- Missing/empty/over-255 title → 400 `VAL_REQUIRED_FIELD` with field details; empty PATCH body → 400.
+- Non-owner or deleted project (any verb incl. update/restore-by-stranger) → 403 `AUTHZ_PROJECT_ACCESS_DENIED`; unauthenticated → 401 `AUTH_TOKEN_MISSING`.
+- Unknown/revoked share token → 404 `RES_NOT_FOUND`.
+- Verified live (23-check smoke script) 2026-07-03; integration tests land in Phase 13 (`tests/integration/projects.test.ts`).
