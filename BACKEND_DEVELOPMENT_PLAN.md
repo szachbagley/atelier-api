@@ -6,6 +6,24 @@ All implementation follows the specifications in `README.md`, `docs/DATABASE.md`
 
 ---
 
+## Implementation status
+
+**Phases 1–14: complete.** ✅
+
+Phases 1–5 shipped via the per-step PR workflow. Phases 6–14 were fast-tracked on a
+single branch (`fast-track-phases-6-14`), one commit per step, with build/lint/unit
+plus a live smoke test after each phase. Final validation (Phase 14): all 72 endpoints
+in `docs/API.md` are implemented (a few component/act/scene routers additionally expose
+by-id `GET`/`PATCH` via the shared CRUD factory — a harmless superset); the
+`docs/SECURITY.md` 11-point checklist passes; the primary user journey is exercised by
+the integration suite (`tests/integration/`) against real MySQL, with the live-Gemini
+image generation and real-S3 upload steps mocked (no creds — verify with real keys
+post-merge). Deferred discrepancy items D3/D13/D14/D16/D20 are closed; see
+`DISCREPANCIES.md`. Suites: 60 unit (≈91% coverage on gated modules) + 25 integration,
+all green.
+
+---
+
 ## Phase 1: Project Scaffolding & Configuration
 
 Bootstrap the Node.js/Express/TypeScript project with all tooling, configuration files, and the local development environment.

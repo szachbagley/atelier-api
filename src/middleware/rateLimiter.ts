@@ -13,11 +13,16 @@ function rateLimitedResponse(req: Request, res: Response, message: string): void
   });
 }
 
+// Integration tests drive many requests from a single IP; disable throttling
+// under NODE_ENV=test so limiter counters never cause cross-test flakiness.
+const skipInTest = (): boolean => process.env.NODE_ENV === 'test';
+
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
   handler: (req, res) => {
     rateLimitedResponse(req, res, 'Too many requests. Please try again shortly.');
   },
@@ -28,6 +33,7 @@ export const authLimiter = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
   keyGenerator: (req) => {
     const email =
       typeof req.body === 'object' && req.body !== null && 'email' in req.body

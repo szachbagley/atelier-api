@@ -232,3 +232,24 @@ uncommitted on the `main` working tree, pending a cleanup branch + PR.
 (D13 is the only change affecting runtime/test behavior). Doc edits spot-checked by
 grep: no remaining references to `projectAccess.ts`, `.eslintrc`, `authSchemas`,
 `notDeleted`, `/api/health`, or `/backend`-scoped Dependabot entries.
+
+---
+
+## Deferred-item closure (fast-track Phases 6–14, 2026-07-16)
+
+All five deliberately-deferred items above are now **closed** by the fast-track
+implementation (branch `fast-track-phases-6-14`):
+
+| Item | Closed by | Where |
+|------|-----------|-------|
+| D3 | `docs/BACKEND.md` repository snippet refreshed to mirror the real `projectRepository` (camelCase boundary, `actCount`/`shotCount` aggregates, transactional default `art_style`) | Phase 6 Step 6.3 |
+| D14 | Shared snake↔camel helper built: `src/utils/caseMapping.ts` (`toCamelRow`/`toCamelRows`/`toSnakeRow`); every repository routes through it | Phase 6 Step 6.3 |
+| D16 | `tests/unit/` nested into `{services,middleware,utils,schemas}`; the two pre-existing flat tests moved | Phase 13 Step 13.1 |
+| D13 | Full `vitest.config.ts` — v8 coverage thresholds (70/60/70/70, scoped `include`), `setupFiles`, `@`→`src` alias — plus `vitest.integration.config.ts` | Phase 13 Step 13.1 |
+| D20 | `docs/DEPLOYMENT.md` Docker sections rewritten to the real backend-only `Dockerfile`/`docker-compose.yml` (repo root); the pre-split status note narrowed to the still-pending CI/CD + frontend sections | Phase 12 |
+
+### New discrepancy found and fixed during Phase 13
+- **D21 — `GEN_ALREADY_IN_PROGRESS` returned HTTP 422, docs/API.md specifies 409.**
+  The generation service threw a `GenerationError` (422) for a concurrent-generation
+  conflict. Fixed to `ConflictError` (409) in `src/services/imageGeneration/index.ts`;
+  regression-locked by `tests/integration/generation.test.ts`. **Status: Resolved (code).**

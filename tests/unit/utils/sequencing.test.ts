@@ -3,7 +3,7 @@ import {
   SEQUENCE_GAP,
   getInsertBetweenSequence,
   renumber,
-} from '../../src/utils/sequencing.js';
+} from '../../../src/utils/sequencing.js';
 
 describe('SEQUENCE_GAP', () => {
   it('is 1000', () => {
