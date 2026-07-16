@@ -2,21 +2,24 @@
 
 This document describes the deployment configuration for Atelier, including Docker setup, CI/CD pipeline, and deployment procedures.
 
-> **Status note.** This document predates the split of the codebase into separate
-> backend (`atelier-api`) and frontend repositories. Paths such as `backend/`,
-> `frontend/`, and the combined `docker-compose.yml` reflect the old monorepo layout
-> and will be revised when CI/CD and infrastructure are built out in Phase 12 of
-> `BACKEND_DEVELOPMENT_PLAN.md`. Treat the concepts (build stages, pipeline shape,
-> deployment procedure) as the spec, not the literal paths.
+> **Status note.** The codebase is split into separate backend (`atelier-api`)
+> and frontend repositories. The Docker sections below reflect the backend
+> repo's real `Dockerfile` and `docker-compose.yml` (repo root). The **CI/CD
+> pipeline and frontend sections** still describe the old monorepo layout
+> (`backend/`, `frontend/` paths, combined workflows) and will be revised when
+> the pipeline is built out with the infrastructure work. Treat those sections
+> as concept-level spec, not literal paths.
 
 ## Docker Configuration
 
 ### Backend Dockerfile
 
 ```dockerfile
-# backend/Dockerfile
+# Dockerfile (repo root of atelier-api)
 
-# Build stage
+# Build stage — full dependency set + compiled output. docker-compose targets
+# this stage for local development (hot reload), so dev dependencies must
+# survive here; pruning happens in the prod-deps stage.
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -29,8 +32,14 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Prune dev dependencies
-RUN npm prune --production
+# Prune stage — production-only node_modules, derived from the builder's
+# install so the lockfile resolution is identical.
+FROM node:20-alpine AS prod-deps
+
+WORKDIR /app
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+RUN npm prune --omit=dev
 
 # Production stage
 FROM node:20-alpine AS production
@@ -43,7 +52,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 # Copy built application
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=nodejs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nodejs:nodejs /app/package.json ./
 
 # Set environment
@@ -196,16 +205,17 @@ CMD ["npm", "run", "dev", "--", "--host"]
 
 ### Local Development
 
-```yaml
-# docker-compose.yml
+The backend repo ships its own `docker-compose.yml` (repo root) with `db` +
+`backend` services. The frontend repo runs its own dev server (or joins the
+`atelier-network` via a compose override).
 
-version: '3.8'
+```yaml
+# docker-compose.yml (repo root of atelier-api)
 
 services:
-  # MySQL Database
   db:
     image: mysql:8.0
-    container_name: atelier-db
+    container_name: atelier-compose-db
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
@@ -213,10 +223,10 @@ services:
       MYSQL_USER: atelier
       MYSQL_PASSWORD: localpassword
     ports:
-      - "3306:3306"
+      - "3308:3306"   # host 3308 avoids colliding with a native MySQL on 3306
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./backend/db/init:/docker-entrypoint-initdb.d
+      - ./src/db/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -226,10 +236,9 @@ services:
     networks:
       - atelier-network
 
-  # Backend API
   backend:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
       target: builder
     container_name: atelier-backend
@@ -243,39 +252,19 @@ services:
       JWT_ACCESS_SECRET: dev-access-secret-minimum-32-characters-long
       JWT_REFRESH_SECRET: dev-refresh-secret-minimum-32-characters-long
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PUBLIC_APP_URL: http://localhost:5173
       AWS_REGION: us-west-2
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local-dev-dummy}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-dev-dummy}
       S3_BUCKET: atelier-dev
       CORS_ORIGINS: http://localhost:5173
     volumes:
-      - ./backend/src:/app/src
-      - ./backend/package.json:/app/package.json
+      - ./src:/app/src
+      - ./package.json:/app/package.json
     command: npm run dev
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - atelier-network
-
-  # Frontend (Vite dev server)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    container_name: atelier-frontend
-    restart: unless-stopped
-    ports:
-      - "5173:5173"
-    environment:
-      VITE_API_URL: http://localhost:3000/api
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.ts:/app/vite.config.ts
-      - ./frontend/tailwind.config.js:/app/tailwind.config.js
-    command: npm run dev -- --host
     networks:
       - atelier-network
 
@@ -285,6 +274,12 @@ volumes:
 networks:
   atelier-network:
     driver: bridge
+```
+
+Run migrations once the stack is up:
+
+```bash
+docker compose exec backend npm run migrate
 ```
 
 ---

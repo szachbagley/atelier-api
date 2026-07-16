@@ -1,0 +1,70 @@
+# Local development environment for the Atelier backend (this repo is
+# backend-only; the frontend repo can join this network with its own compose
+# file or an override).
+#
+# Note: the db host port is 3308 to avoid colliding with a native MySQL on
+# 3306 (and other local MySQL containers on 3307); inside the network the
+# backend reaches it at db:3306.
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: atelier-compose-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: atelier
+      MYSQL_USER: atelier
+      MYSQL_PASSWORD: localpassword
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./src/db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - atelier-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: atelier-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: mysql://atelier:localpassword@db:3306/atelier
+      JWT_ACCESS_SECRET: dev-access-secret-minimum-32-characters-long
+      JWT_REFRESH_SECRET: dev-refresh-secret-minimum-32-characters-long
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PUBLIC_APP_URL: http://localhost:5173
+      AWS_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local-dev-dummy}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-dev-dummy}
+      S3_BUCKET: atelier-dev
+      CORS_ORIGINS: http://localhost:5173
+    volumes:
+      - ./src:/app/src
+      - ./package.json:/app/package.json
+    command: npm run dev
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - atelier-network
+
+volumes:
+  mysql_data:
+
+networks:
+  atelier-network:
+    driver: bridge

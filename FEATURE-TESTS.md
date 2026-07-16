@@ -339,3 +339,30 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 ### Error scenarios
 - Unknown/foreign component or foreign `selectedImageId` → 400; unknown session → 404; non-owner → 403; no Gemini key → 422 `KEY_NOT_CONFIGURED`; non-ACTIVE ops → 409.
 - Verified live (14-check smoke) 2026-07-03.
+
+---
+
+## Docker & local development environment
+
+**Status:** implemented · **Related:** plan Steps 12.1–12.4; `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `src/db/init/01-init.sql`, `docs/DEPLOYMENT.md`
+
+### Happy path
+- `docker compose up -d --build` builds the image and starts `db` (mysql:8.0) then `backend` once the db healthcheck passes (`depends_on: service_healthy`).
+- Backend connects to MySQL over the internal network at `db:3306`; `docker compose exec backend npm run migrate` applies all 19 migrations against a fresh volume.
+- API reachable at `localhost:3000`: `/health` → 200 `{"status":"ok"}`; `POST /api/auth/register` → 201 with JWT (proves app→DB write + token signing in-container).
+- Multi-stage `Dockerfile`: `builder` (full deps + `npm run build`, targeted by compose for hot-reload dev), `prod-deps` (`npm prune --omit=dev`), `production` (non-root `nodejs:1001`, `HEALTHCHECK wget /health`, `CMD node dist/server.js`).
+
+### Edge cases
+- Host db port is **3308** (avoids native MySQL on 3306 and other local MySQL containers on 3307); the internal port is always 3306 so app config is unaffected by the host remap.
+- `.dockerignore` excludes `node_modules`, `dist`, `.env`, `.git`, `tests`, `docs`, and planning docs so build context stays small and secrets never enter the image.
+- `src/db/init/01-init.sql` is idempotent (`CREATE ... IF NOT EXISTS`, utf8mb4) and only runs on a fresh `mysql_data` volume.
+
+### Known limitations
+- The production image is defined but not exercised by compose (compose targets the `builder` stage for dev hot-reload); production-stage runtime is verified only by the identical build up to that layer, not a live boot.
+- No orchestration/secrets manager wiring here — dev secrets are inline in compose; real deployment secret handling is a `docs/DEPLOYMENT.md` concern (CI/CD section still marked pending).
+- `.env` is intentionally absent from the image; the backend relies on compose `environment:` for config.
+
+### Error scenarios
+- Backend will not start until the db healthcheck passes (compose gates it); a wrong `DATABASE_URL` surfaces as a connection error in `docker compose logs backend`.
+- Host port already in use → compose fails to bind db; remap the host side of `3308:3306`.
+- Verified live 2026-07-16: full `up --build` → healthy → 19 migrations → `/health` 200 → register 201 → `down` clean.

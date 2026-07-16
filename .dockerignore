@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.env
+.git
+*.log
+tests
+docs
+DISCREPANCIES.md
+FEATURE-TESTS.md
+BACKEND_DEVELOPMENT_PLAN.md
