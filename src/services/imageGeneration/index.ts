@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { db } from '../../db/index.js';
 import * as generatedImageRepository from '../../db/repositories/generatedImageRepository.js';
 import { ErrorCodes } from '../../errors/codes.js';
-import { ApiKeyError, GenerationError } from '../../errors/index.js';
+import { ApiKeyError, ConflictError, GenerationError } from '../../errors/index.js';
 import type { Shot, UserApiKey } from '../../types/models.js';
 import { logger } from '../../utils/logger.js';
 import { decryptApiKey } from '../encryption/encryptionService.js';
@@ -96,10 +96,10 @@ export async function generateForShot(
   const shot = (await db<Shot>('shots').where({ id: shotId }).first()) as Shot;
 
   if (shot.status === 'GENERATING') {
-    throw new GenerationError(
+    // 409 per docs/API.md — a concurrency conflict, not a generation failure.
+    throw new ConflictError(
       ErrorCodes.GEN_ALREADY_IN_PROGRESS,
-      'This shot is already generating an image',
-      undefined
+      'This shot is already generating an image'
     );
   }
 

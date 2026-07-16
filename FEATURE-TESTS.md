@@ -366,3 +366,29 @@ Reference `docs/TESTING.md` for the testing stack, structure, and coverage targe
 - Backend will not start until the db healthcheck passes (compose gates it); a wrong `DATABASE_URL` surfaces as a connection error in `docker compose logs backend`.
 - Host port already in use → compose fails to bind db; remap the host side of `3308:3306`.
 - Verified live 2026-07-16: full `up --build` → healthy → 19 migrations → `/health` 200 → register 201 → `down` clean.
+
+---
+
+## Automated test suite (unit + integration)
+
+**Status:** implemented · **Related:** plan Steps 13.1–13.5; `vitest.config.ts`, `vitest.integration.config.ts`, `tests/unit/**`, `tests/integration/**`, `tests/fixtures/index.ts`
+
+### Happy path
+- **Unit** (`npm test`, `vitest.config.ts`): 60 tests across `tests/unit/{services,middleware,utils,schemas}`. Pure, no I/O. Covers encryption round-trip/tamper, prompt compiler (section order, sources, warnings, length cap, injection sanitization), token verification/expiry, auth-token hashing, validate + authenticate middleware, sequencing, soft-delete helpers, and the auth Joi schemas.
+- **Coverage** (`npm run test:coverage`, v8): gate scoped to the fully-unit-covered high-priority modules; thresholds 70/60/70/70. Current: ~91% statements / 83% branches / 96% functions / 91% lines.
+- **Integration** (`npm run test:integration`, `vitest.integration.config.ts`): 25 tests over a real MySQL via Testcontainers (one container for the run, migrations applied by importing each migration module directly), driving the Express app with supertest. Serial single-fork; `truncateTables` between cases. Covers auth (register/login/refresh-rotation+replay/me), project CRUD+authorization+sharing, shot sequencing/junctions/reorder/move, and generation (Gemini + storage mocked) status machine + revert.
+
+### Edge cases
+- `tests/unit/setup.ts` sets deterministic env before any source import; `tests/integration/globalSetup.ts` publishes the container URL via `process.env` **and** a temp file that `tests/integration/setup.ts` reads (robust against worker spawn ordering).
+- Rate limiters skip under `NODE_ENV=test` so a single test IP never trips the global/auth throttles.
+- Coverage `include` deliberately omits DB-bound modules (repositories, routes, `authService` persistence paths) — those are exercised by the integration suite, not the unit gate.
+
+### Known limitations
+- Integration generation tests mock the Gemini client and the S3 storage service; real provider/bucket round-trips remain manual (no creds in CI).
+- Coverage gate measures the unit suite only; whole-repo line coverage is higher once integration paths are counted but is not enforced as a single number.
+- Testcontainers requires a running Docker daemon, so `npm run test:integration` can only run where Docker is available (locally or a Docker-enabled CI runner).
+
+### Error scenarios
+- A real defect was caught here: `GEN_ALREADY_IN_PROGRESS` was thrown as a `GenerationError` (422); docs/API.md specifies **409**. Fixed to `ConflictError` (409) and locked in by `tests/integration/generation.test.ts`.
+- Negative cases asserted: duplicate email 409, weak password 400, wrong password 401, refresh replay 401, foreign project 403, foreign component ref 400, mismatched reorder set 400, generate without key 422 (shot not left GENERATING), revert without previous image 422.
+- Verified 2026-07-16: `npm test` (60) + `npm run test:integration` (25) green; build + lint clean.
